@@ -435,7 +435,7 @@ static void ain_process_adc_data(uint16_t* adc_data)
             ain_process_channel_inst_data(i);
         }
 
-        // Оповестить логгер о готовности очередных данных.
+        // Записать осциллограмму.
         osc_append();
     }
 
