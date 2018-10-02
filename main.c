@@ -19,6 +19,8 @@
 #include "task.h"
 #include "logger.h"
 #include "ain.h"
+#include "din.h"
+#include "dout.h"
 
 
 // UART.
@@ -75,6 +77,37 @@ static uint16_t adc_cal[ADC_SAMPLES_COUNT];
 #define ADC3_DMA_CH DMA2_Channel5
 // Таймер АЦП.
 #define ADC_TIM TIM1
+
+// Цифровые входа/выхода.
+// Режим порта входа.
+#define DIN_MODE GPIO_MODE_IN
+// Конфигурация порта входа.
+#define DIN_CONF GPIO_CONF_IN_FLOATING
+// Режим порта выхода.
+#define DOUT_MODE GPIO_MODE_OUT_2MHz
+// Конфигурация порта выхода.
+#define DOUT_CONF GPIO_CONF_OUT_GP_PP
+// Цифровые входа.
+#define DIN_1_GPIO GPIOB
+#define DIN_1_PIN GPIO_PIN_9
+#define DIN_2_GPIO GPIOE
+#define DIN_2_PIN GPIO_PIN_0
+#define DIN_3_GPIO GPIOE
+#define DIN_3_PIN GPIO_PIN_1
+#define DIN_4_GPIO GPIOE
+#define DIN_4_PIN GPIO_PIN_2
+#define DIN_5_GPIO GPIOE
+#define DIN_5_PIN GPIO_PIN_3
+// Цифровые выхода.
+#define DOUT_1_GPIO GPIOE
+#define DOUT_1_PIN GPIO_PIN_6
+#define DOUT_2_GPIO GPIOE
+#define DOUT_2_PIN GPIO_PIN_5
+#define DOUT_3_GPIO GPIOE
+#define DOUT_3_PIN GPIO_PIN_4
+#define DOUT_4_GPIO GPIOC
+#define DOUT_4_PIN GPIO_PIN_13
+
 
 // Приоритеты прерываний.
 #define IRQ_PRIOR_MAX (8)
@@ -206,6 +239,7 @@ static void init_periph_clock(void)
     RCC->APB2ENR |= RCC_APB2ENR_IOPAEN;
     RCC->APB2ENR |= RCC_APB2ENR_IOPBEN;
     RCC->APB2ENR |= RCC_APB2ENR_IOPCEN;
+    RCC->APB2ENR |= RCC_APB2ENR_IOPEEN;
     // USART buf.
     RCC->APB1ENR |= RCC_APB1ENR_USART3EN;
     // SPI.
@@ -622,6 +656,39 @@ static void init_adc(void)
     init_adc_tim();
 }
 
+static void init_din_channel(size_t n, GPIO_TypeDef* gpio, gpio_pin_t pin)
+{
+	gpio_init(gpio, pin, DIN_MODE, DIN_CONF);
+	din_channel_init(n, gpio, pin);
+}
+
+static void init_din(void)
+{
+	din_init();
+
+	init_din_channel(0, DIN_1_GPIO, DIN_1_PIN);
+	init_din_channel(1, DIN_2_GPIO, DIN_2_PIN);
+	init_din_channel(2, DIN_3_GPIO, DIN_3_PIN);
+	init_din_channel(3, DIN_4_GPIO, DIN_4_PIN);
+	init_din_channel(4, DIN_5_GPIO, DIN_5_PIN);
+}
+
+static void init_dout_channel(size_t n, GPIO_TypeDef* gpio, gpio_pin_t pin)
+{
+	gpio_init(gpio, pin, DOUT_MODE, DOUT_CONF);
+	dout_channel_init(n, gpio, pin);
+}
+
+static void init_dout(void)
+{
+	dout_init();
+
+	init_dout_channel(0, DOUT_1_GPIO, DOUT_1_PIN);
+	init_dout_channel(1, DOUT_2_GPIO, DOUT_2_PIN);
+	init_dout_channel(2, DOUT_3_GPIO, DOUT_3_PIN);
+	init_dout_channel(3, DOUT_4_GPIO, DOUT_4_PIN);
+}
+
 static void init_usart_buf(void)
 {
     // GPIO.
@@ -906,6 +973,9 @@ int main(void)
     init_usart_buf();
 
     init_adc();
+
+    init_din();
+    init_dout();
 
     init_spi();
     init_sdcard();

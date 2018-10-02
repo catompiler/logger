@@ -4,7 +4,7 @@ TARGET    = main
 # Объектные файлы.
 OBJECTS   = main.o FreeRTOS-openocd.o system_stm32f10x.o startup.o\
 			logger.o ain.o fir.o decim.o decim_avg.o mwin.o osc.o\
-			hires_timer.o
+			hires_timer.o din.o dout.o
 
 # fatfs.
 OBJECTS  += fatfs/ff.o fatfs/ffsystem.o fatfs/ffunicode.o
