@@ -9,8 +9,11 @@
 //! Общее число семплов в буфере.
 #define OSC_TOTAL_SAMPLES_MAX (OSC_SAMPLES_MAX + OSC_RESERVED_SAMPLES)
 
-//! Минимальный размер буфера для канала (если вычисленный размер оказывается равен нулю).
+//! Минимальное число семплов для канала (если вычисленный размер оказывается равен нулю).
 #define OSC_SAMPLES_MIN 1
+
+//! Минимальный размер буфера для канала (если вычисленный размер оказывается равен нулю).
+#define OSC_BUF_SIZE_MIN 1
 
 //! Число цифровых сигналов в одном семпле.
 #define OSC_BITS_PER_SAMPLE (sizeof(osc_value_t) * 8)
@@ -125,10 +128,10 @@ static size_t osc_channel_index_next(osc_channel_t* channel, size_t index)
 {
 	size_t next = index + 1;
 
-	size_t last = channel->size;
-	if(channel->type == OSC_BIT) last *= OSC_BITS_PER_SAMPLE;
+	//size_t last = channel->size;
+	//if(channel->type == OSC_BIT) last *= OSC_BITS_PER_SAMPLE;
 
-	if(next >= last) next = 0;
+	if(next >= channel->count) next = 0;
 
 	return next;
 }
@@ -207,7 +210,7 @@ static void osc_channel_append_value(osc_channel_t* channel, osc_value_t value)
  */
 static osc_value_t osc_channel_get_value_val(osc_channel_t* channel, size_t index)
 {
-	if(index >= channel->size) return 0;
+	if(index >= channel->count) return 0;
 
 	return channel->data[index];
 }
@@ -223,7 +226,7 @@ static osc_value_t osc_channel_get_value_bit(osc_channel_t* channel, size_t inde
 	size_t pos = index / OSC_BITS_PER_SAMPLE;
 	size_t bit = index % OSC_BITS_PER_SAMPLE;
 
-	if(pos >= channel->size) return 0;
+	if(index >= channel->count) return 0;
 
 	return (channel->data[pos] &= (1 << bit)) ? 1 : 0;
 }
@@ -286,6 +289,7 @@ static bool osc_channel_append(osc_channel_t* channel)
 {
 	if(!channel->enabled) return false;
 	if(channel->size == 0) return false;
+	if(channel->count == 0) return false;
 	if(channel->data == NULL) return false;
 
 	switch(channel->src){
@@ -389,9 +393,7 @@ size_t osc_channel_samples(size_t n)
 
 	osc_channel_t* channel = osc_channel(n);
 
-	if(channel->type == OSC_BIT) return channel->size * OSC_BITS_PER_SAMPLE;
-
-	return channel->size;
+	return channel->count;
 }
 
 size_t osc_channel_index(size_t n)
@@ -429,6 +431,7 @@ err_t osc_channel_init(size_t n, osc_src_t src, osc_type_t type, osc_src_type_t 
 
 	channel->enabled = false;
 	channel->size = 0;
+	channel->count = 0;
 	channel->index = 0;
 	channel->data = NULL;
 
@@ -441,6 +444,21 @@ err_t osc_channel_init(size_t n, osc_src_t src, osc_type_t type, osc_src_type_t 
 	channel->skew = 0;
 
 	return E_NO_ERROR;
+}
+
+static size_t osc_channel_count_to_size(osc_channel_t* channel, size_t count)
+{
+	size_t size = 0;
+
+	// Для битовых значений.
+	if(channel->type == OSC_BIT){
+		// Учтём побитовую упаковку.
+		size = (count + OSC_BITS_PER_SAMPLE - 1) / OSC_BITS_PER_SAMPLE;
+	}else{ // Для аналоговых значений.
+		size = count;
+	}
+
+	return size;
 }
 
 /**
@@ -464,15 +482,15 @@ static size_t osc_channels_calc_req_size(osc_channel_t* channels, size_t count)
     	channel = osc_channel(i);
 
     	rate = osc_channel_decim_scale(channel);
-    	if(rate) channel->size = samples / rate;
-    	// Для битовых значений.
-    	if(channel->type == OSC_BIT){
-    		// Учтём побитовую упаковку.
-    		channel->size = (channel->size + OSC_BITS_PER_SAMPLE - 1) / OSC_BITS_PER_SAMPLE;
-    	}
+    	if(rate) channel->count = samples / rate;
+
+    	// Минимальное число семплов.
+    	if(channel->count == 0) channel->count = OSC_SAMPLES_MIN;
+
+    	channel->size = osc_channel_count_to_size(channel, channel->count);
 
     	// Минимальный размер.
-		if(channel->size == 0) channel->size = OSC_SAMPLES_MIN;
+		if(channel->size == 0) channel->size = OSC_BUF_SIZE_MIN;
 
         rel_size += channel->size;
     }
@@ -491,29 +509,27 @@ static err_t osc_alloc_buffers(osc_channel_t* channels, size_t count, iq15_t rat
 {
     osc_channel_t* channel = NULL;
     osc_value_t* data = NULL;
-    iq15_t size = 0;
+    int32_t samples_count = 0;
+    int32_t size = 0;
 
     size_t i;
     for(i = 0; i < count; i ++){
         channel = &channels[i];
 
         // Необходимый размер.
-        size = channel->size;
-        // Для битовых значений переведём в семплы.
-        if(channel->type == OSC_BIT){
-        	channel->size = channel->size * OSC_BITS_PER_SAMPLE;
-        }
+        samples_count = channel->count;
         // Скорректируем.
-        size = iq15_imul(rate, size);
+        samples_count = iq15_imul(rate, samples_count);
         // Округлим до целого в меньшую сторону.
-        size = iq15_int(size);
-        // Для битовых значений приведём к целому числу семплов.
-        if(channel->type == OSC_BIT){
-        	channel->size = (channel->size + OSC_BITS_PER_SAMPLE - 1) / OSC_BITS_PER_SAMPLE;
-        }
+        samples_count = iq15_int(samples_count);
 
-        // Минимальный размер.
-        if(size == 0) size = OSC_SAMPLES_MIN;
+    	// Минимальное число семплов.
+    	if(samples_count == 0) samples_count = OSC_SAMPLES_MIN;
+
+    	size = osc_channel_count_to_size(channel, samples_count);
+
+    	// Минимальный размер.
+		if(size == 0) size = OSC_BUF_SIZE_MIN;
 
         // Выделим буфер данных.
         data = osc_pool_alloc(size);
@@ -521,6 +537,7 @@ static err_t osc_alloc_buffers(osc_channel_t* channels, size_t count, iq15_t rat
         if(data == NULL) return E_OUT_OF_MEMORY;
 
         channel->data = data;
+        channel->count = samples_count;
         channel->size = size;
     }
 
