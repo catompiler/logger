@@ -5,7 +5,8 @@
 #ifndef Q15_H_
 #define Q15_H_
 
-#include <arm_math.h>
+//#include <arm_math.h>
+#include <stdint.h>
 #include "defs/defs.h"
 
 
@@ -56,6 +57,15 @@ typedef int64_t lq15_t;
 //! Вычисляет число с фиксированной запятой с по дроби A/B.
 #define IQ15F(A, B) ((((iq15_t)(A)) << Q15_FRACT_BITS) / (B))
 
+//! Вычисляет расширенное число с фиксированной запятой с целой частью по float.
+#define LQ15(F) ((lq15_t)(F * Q15_BASE))
+
+//! Вычисляет расширенное число с фиксированной запятой с целой частью по int.
+#define LQ15I(I) (((lq15_t)(I)) << Q15_FRACT_BITS)
+
+//! Вычисляет расширенное число с фиксированной запятой с по дроби A/B.
+#define LQ15F(A, B) ((((lq15_t)(A)) << Q15_FRACT_BITS) / (B))
+
 
 //! Максимальное число Q15.
 #define Q15_MAX ((q15_t)0x7fff)
@@ -81,30 +91,54 @@ typedef int64_t lq15_t;
 
 //! Выполняет насыщение числа с фиксированной запятой
 //! Q до разряда N.
+#ifdef __ARM__
 #define IQ15_SSAT(Q, N)\
     ({ register int32_t __RES, __Q = Q;\
     __asm__("ssat %0, %1, %2" : "=r"(__RES) : "I"(N), "r"(__Q));\
     __RES;})
+#else
+#define IQ15_SSAT(Q, N)\
+    ({ register int32_t __RES, __Q = Q;\
+       const int32_t __MAX = ( (1<<((N)-1))-1);\
+       const int32_t __MIN = (-(1<<((N)-1))  );\
+    __RES = (__Q > __MAX) ? __MAX : ((__Q < __MIN) ? __MIN : __Q);\
+    __RES;})
+#endif
 #define Q15_SSAT(Q, N) IQ15_SSAT(Q, N)
 
 //! Выполняет насыщение числа с фиксированной запятой
 //! Q до разряда N со сдвигом вправо на S разрядов.
+#ifdef __ARM__
 #define IQ15_SSAT_ASR(Q, N, S)\
     ({ register int32_t __RES, __Q = Q;\
     __asm__("ssat %0, %1, %2 ASR %3" : "=r"(__RES) : "I"(N), "r"(__Q), "I"(S));\
     __RES;})
+#else
+#define IQ15_SSAT_ASR(Q, N, S)\
+    ({ register int32_t __RES, __Q = (Q) >> (S);\
+    __RES = IQ15_SSAT(__Q, N);\
+    __RES;})
+#endif
 #define Q15_SSAT_ASR(Q, N, S) IQ15_SSAT_ASR(Q, N, S)
 
 //! Выполняет умножение чисел с фиксированной запятой
 //! Q1 и Q2 и сложение их с аккумулятором A.
+#ifdef __ARM__
 #define IQ15_MLA(Q1, Q2, A)\
     ({ register int32_t __RES, __Q1 = Q1, __Q2 = Q2, __A = A;\
     __asm__("mla %0, %1, %2, %3" : "=r"(__RES) : "r"(__Q1), "r"(__Q2), "r"(__A));\
     __RES;})
+#else
+#define IQ15_MLA(Q1, Q2, A)\
+    ({ register int32_t __RES, __Q1 = Q1, __Q2 = Q2, __A = A;\
+    __RES = __Q1 * __Q2 + __A;\
+    __RES;})
+#endif
 #define Q15_MLA(Q1, Q2, A) IQ15_MLA(Q1, Q2, A)
 
 //! Выполняет умножение чисел с фиксированной запятой
 //! Q1 и Q2 и сложение их с 64 битным аккумулятором A.
+#ifdef __ARM__
 #define IQ15_MLAL(Q1, Q2, A)\
     ({ union __U_MLAL_64 { int64_t _64;\
            struct _S_MLAL_64 {int32_t lo; int32_t hi;} _32; };\
@@ -113,6 +147,13 @@ typedef int64_t lq15_t;
     __asm__("smlal %0, %1, %2, %3" : "=r"(__u_mlal_64._32.lo), "=r"(__u_mlal_64._32.hi) :\
             "r"(__Q1), "r"(__Q2), "0"(__u_mlal_64._32.lo), "1"(__u_mlal_64._32.hi));\
     (__u_mlal_64._64);})
+#else
+#define IQ15_MLAL(Q1, Q2, A)\
+    ({ register int32_t __Q1 = Q1, __Q2 = Q2;\
+       register int64_t __RES, __A = A;\
+    __RES = (int64_t)__Q1 * __Q2 + __A;\
+    __RES;})
+#endif
 #define Q15_MLAL(Q1, Q2, A) IQ15_MLAL(Q1, Q2, A)
 
 
@@ -327,19 +368,19 @@ ALWAYS_INLINE static iq15_t iq15_mul(iq15_t a, iq15_t b)
 
 /**
  * Умножает два числа IQ15.
- * Использует 64 бит промежуточный результат.
+ * Использует 64 бит результат.
  * @param a Число.
  * @param b Число.
  * @return Результат.
  */
-ALWAYS_INLINE static iq15_t iq15_mull(iq15_t a, iq15_t b)
+ALWAYS_INLINE static lq15_t iq15_mull(iq15_t a, iq15_t b)
 {
     register int64_t res;
 
     res = (int64_t)a * b;
     res = res >> Q15_FRACT_BITS;
 
-    return (iq15_t)res;
+    return res;
 }
 
 /**
@@ -366,6 +407,22 @@ ALWAYS_INLINE static iq15_t q15_imul(q15_t a, int32_t b)
 ALWAYS_INLINE static iq15_t iq15_imul(iq15_t a, int32_t b)
 {
     register int32_t res;
+
+    res = a * b;
+
+    return res;
+}
+
+/**
+ * Умножает число IQ15 на целое число.
+ * Использует 64 бит результат.
+ * @param a Число.
+ * @param b Целое число.
+ * @return Результат.
+ */
+ALWAYS_INLINE static lq15_t iq15_imull(iq15_t a, int32_t b)
+{
+    register int64_t res;
 
     res = a * b;
 
@@ -411,19 +468,19 @@ ALWAYS_INLINE static iq15_t iq15_div(iq15_t a, iq15_t b)
 
 /**
  * Делит два числа IQ15.
- * Использует 64 бит промежуточный результат.
+ * Использует 64 бит результат.
  * @param a Число.
  * @param b Число.
  * @return Результат.
  */
-ALWAYS_INLINE static iq15_t iq15_divl(iq15_t a, iq15_t b)
+ALWAYS_INLINE static lq15_t iq15_divl(iq15_t a, iq15_t b)
 {
     register int64_t res;
 
     res = (int64_t)a << Q15_FRACT_BITS;
     res = res / b;
 
-    return (iq15_t)res;
+    return res;
 }
 
 /**

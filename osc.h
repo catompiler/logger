@@ -66,7 +66,9 @@ extern void osc_set_enabled(bool enabled);
 extern bool osc_enabled(void);
 
 /**
- * Сбрасывает осциллограммы.
+ * Сбрасывает используемые каналы осциллограммы.
+ * Устанавливает нулевое количество используемых каналов.
+ * Освобождает память данных каналов.
  */
 extern void osc_reset(void);
 
@@ -75,6 +77,30 @@ extern void osc_reset(void);
  * @return Число используемых каналов.
  */
 extern size_t osc_used_channels(void);
+
+/**
+ * Получает время записи осциллограммы.
+ * @return Время записи осциллограммы.
+ */
+extern iq15_t osc_time(void);
+
+/**
+ * Делает паузу записи осциллограммы после
+ * количества семплов, эквивалентное заданному времени.
+ * @param time Время.
+ */
+extern void osc_pause(iq15_t time);
+
+/**
+ * Получает флаг паузы осциллограмм.
+ * @return Флаг паузы осциллограмм.
+ */
+extern bool osc_paused(void);
+
+/**
+ * Продолжает запись осциллограмм.
+ */
+extern void osc_resume(void);
 
 /**
  * Устанавливает разрешение записи осциллограммы канала.
@@ -121,6 +147,56 @@ extern size_t osc_channel_index(size_t n);
 extern size_t osc_channel_next_index(size_t n, size_t index);
 
 /**
+ * Получает индекс семпла по номеру.
+ * @param n Номер канала.
+ * @param sample Номер семпла.
+ * @return Индекс.
+ */
+extern size_t osc_channel_sample_index(size_t n, size_t sample);
+
+/**
+ * Получает источник канала.
+ * @param n Номер канала.
+ * @return Источник канала.
+ */
+extern osc_src_t osc_channel_src(size_t n);
+
+/**
+ * Получает тип канала.
+ * @param n Номер канала.
+ * @return Тип канала.
+ */
+extern osc_type_t osc_channel_type(size_t n);
+
+/**
+ * Получает тип источника канала.
+ * @param n Номер канала.
+ * @return Тип источника канала.
+ */
+extern osc_src_type_t osc_channel_src_type(size_t n);
+
+/**
+ * Получает канал источника.
+ * @param n Номер канала.
+ * @return Канал источника.
+ */
+extern size_t osc_channel_src_channel(size_t n);
+
+/**
+ * Получает коэффициент деления частоты канала.
+ * @param n Номер канала.
+ * @return Коэффициент деления частоты канала.
+ */
+extern size_t osc_channel_rate(size_t n);
+
+/**
+ * Получает разницу хода канала осциллограммы в семплах.
+ * @param n Номер канала.
+ * @return Разница хода канала.
+ */
+extern size_t osc_channel_skew(size_t n);
+
+/**
  * Получает данные канала.
  * @param n Номер канала.
  * @param index Индекс данных.
@@ -130,6 +206,9 @@ extern osc_value_t osc_channel_value(size_t n, size_t index);
 
 /**
  * Инициализирует канал.
+ * Сбрасывает настройки данных канала и
+ * запрещает его.
+ * Для использования канала его необходимо разрешить.
  * После инициализации каналов необходимо
  * распределить память между ними
  * вызовом osc_init.
@@ -146,9 +225,8 @@ extern err_t osc_channel_init(size_t n, osc_src_t src, osc_type_t type, osc_src_
 /**
  * Распределяет между проинициализированными
  * каналами доступную память под осциллограммы.
- * @param count Число используемых каналов.
  * @return Код ошибки.
  */
-extern err_t osc_init_channels(size_t count);
+extern err_t osc_init_channels(void);
 
 #endif /* OSC_H_ */

@@ -3,6 +3,7 @@
 #include "decim_avg.h"
 #include "ain.h"
 #include "din.h"
+#include <string.h>
 
 
 //! Резервные семплы для компенсации ошибок вычислений размера.
@@ -48,8 +49,12 @@ typedef struct _Osc_Pool {
 //! Структура осциллограмм.
 typedef struct _Osc {
     osc_channel_t channels[OSC_COUNT_MAX]; //!< Каналы осциллограммы.
-    size_t used_channels; //!< Количество используемых каналов.
+    size_t used_map[OSC_COUNT_MAX]; //!< Индексы используемых каналов.
+    size_t used_count; //!< Количество используемых каналов.
     bool enabled; //!< Разрешение каналов.
+    iq15_t time; //!< Время осциллограммы.
+    bool pause_enabled; //!< Разрешение паузы.
+    size_t pause_samples; //!< Число семплов до паузы.
     osc_pool_t pool; //!< Пул данных.
 } osc_t;
 
@@ -103,21 +108,21 @@ ALWAYS_INLINE static osc_channel_t* osc_channel(size_t n)
 //! Получает степень децимации.
 ALWAYS_INLINE static size_t osc_channel_decim_scale(osc_channel_t* channel)
 {
-	if(channel->type == OSC_VAL) return decim_avg_scale(&channel->decim_avg);
+	//if(channel->type == OSC_VAL) return decim_avg_scale(&channel->decim_avg);
 	return decim_scale(&channel->decim_inst);
 }
 
 //! Инициализирует дециматор.
 ALWAYS_INLINE static err_t osc_channel_decim_init(osc_channel_t* channel, size_t scale)
 {
-	if(channel->type == OSC_VAL) return decim_avg_init(&channel->decim_avg, scale);
+	//if(channel->type == OSC_VAL) return decim_avg_init(&channel->decim_avg, scale);
 	return decim_init(&channel->decim_inst, scale);
 }
 
 //! Сбрасывает дециматор.
 ALWAYS_INLINE static void osc_channel_decim_reset(osc_channel_t* channel)
 {
-	if(channel->type == OSC_VAL) decim_avg_reset(&channel->decim_avg);
+	//if(channel->type == OSC_VAL) decim_avg_reset(&channel->decim_avg);
 	decim_reset(&channel->decim_inst);
 }
 
@@ -177,12 +182,15 @@ static void osc_channel_append_value(osc_channel_t* channel, osc_value_t value)
 {
 	if(channel->type == OSC_VAL){
 
-		decim_avg_put(&channel->decim_avg, value);
+		//decim_avg_put(&channel->decim_avg, value);
+	    decim_put(&channel->decim_inst, value);
 
-		if(decim_avg_ready(&channel->decim_avg)){
+		//if(decim_avg_ready(&channel->decim_avg)){
+		if(decim_ready(&channel->decim_inst)){
 			channel->skew = 0;
 
-			value = decim_avg_data(&channel->decim_avg);
+			//value = decim_avg_data(&channel->decim_avg);
+            value = decim_data(&channel->decim_inst);
 
 			osc_channel_append_value_val(channel, value);
 		}else{
@@ -230,7 +238,7 @@ static osc_value_t osc_channel_get_value_bit(osc_channel_t* channel, size_t inde
 
 	if(index >= channel->count) return 0;
 
-	return (channel->data[pos] &= (1 << bit)) ? 1 : 0;
+	return (channel->data[pos] & (1 << bit)) ? 1 : 0;
 }
 
 /**
@@ -312,11 +320,24 @@ void osc_append(void)
 {
 	if(!osc.enabled) return;
 
+	// Если разрешена пауза.
+	if(osc.pause_enabled){
+	    // Если достигли окончания интервала ожидания.
+	    if(osc.pause_samples == 0){
+	        // Возврат.
+	        return;
+	    }
+	    osc.pause_samples --;
+	}
+
 	osc_channel_t* channel = NULL;
+	size_t n = 0;
 
 	size_t i;
-	for(i = 0; i < osc.used_channels; i ++){
-		channel = osc_channel(i);
+	for(i = 0; i < osc.used_count; i ++){
+		n = osc.used_map[i];
+
+		channel = osc_channel(n);
 
 		osc_channel_append(channel);
 	}
@@ -332,27 +353,60 @@ bool osc_enabled(void)
 	return osc.enabled;
 }
 
-/**
- * Сбрасывает каналы.
- * @param channels Каналы.
- * @param count Число каналов.
- */
-static void osc_channels_reset(osc_channel_t* channels, size_t count)
-{
-    size_t i;
-    for(i = 0; i < count; i++){
-        osc_channel_reset(i);
-    }
-}
-
 void osc_reset(void)
 {
-	osc_channels_reset(osc.channels, osc.used_channels);
+	size_t n = 0;
+
+	size_t i;
+	for(i = 0; i < osc.used_count; i ++){
+		n = osc.used_map[i];
+
+        osc_channel_reset(n);
+	}
+
+    // Память будет освобождена, т.к.
+	// все используемые каналы сброшены,
+    // буферы каналов больше не действительны.
+    osc.used_count = 0;
+
+    // Сбросим пул данных.
+    osc_pool_reset();
+
+    // Время.
+    osc.time = 0;
+
+    // Пауза.
+    osc.pause_enabled = false;
+    osc.pause_samples = 0;
 }
 
 size_t osc_used_channels(void)
 {
-	return osc.used_channels;
+	return osc.used_count;
+}
+
+iq15_t osc_time(void)
+{
+    return osc.time;
+}
+
+void osc_pause(iq15_t time)
+{
+    lq15_t time_samples = iq15_imull(time, AIN_SAMPLE_FREQ);
+    size_t samples = (size_t)IQ15_INT(time_samples);
+
+    osc.pause_samples = samples;
+    osc.pause_enabled = true;
+}
+
+bool osc_paused(void)
+{
+    return osc.pause_enabled && osc.pause_samples == 0;
+}
+
+void osc_resume(void)
+{
+    osc.pause_enabled = false;
 }
 
 err_t osc_channel_set_enabled(size_t n, bool enabled)
@@ -381,10 +435,16 @@ err_t osc_channel_reset(size_t n)
 
 	osc_channel_t* channel = osc_channel(n);
 
-	osc_channel_decim_reset(channel);
+	channel->enabled = false;
+	channel->size = 0;
+	channel->count = 0;
+	channel->index = 0;
+	channel->data = NULL;
 
 	channel->skew = 0;
 	channel->index = 0;
+
+	osc_channel_decim_reset(channel);
 
 	return E_NO_ERROR;
 }
@@ -416,6 +476,73 @@ size_t osc_channel_next_index(size_t n, size_t index)
 	return osc_channel_index_next(channel, index);
 }
 
+size_t osc_channel_sample_index(size_t n, size_t sample)
+{
+    if(n >= AIN_CHANNELS_COUNT) return 0;
+
+    osc_channel_t* channel = osc_channel(n);
+
+    size_t index = sample + channel->index;
+
+    if (index >= channel->count) index -= channel->count;
+
+    return index;
+}
+
+osc_src_t osc_channel_src(size_t n)
+{
+    if(n >= AIN_CHANNELS_COUNT) return 0;
+
+    osc_channel_t* channel = osc_channel(n);
+
+    return channel->src;
+}
+
+osc_type_t osc_channel_type(size_t n)
+{
+    if(n >= AIN_CHANNELS_COUNT) return 0;
+
+    osc_channel_t* channel = osc_channel(n);
+
+    return channel->type;
+}
+
+osc_src_type_t osc_channel_src_type(size_t n)
+{
+    if(n >= AIN_CHANNELS_COUNT) return 0;
+
+    osc_channel_t* channel = osc_channel(n);
+
+    return channel->src_type;
+}
+
+size_t osc_channel_src_channel(size_t n)
+{
+    if(n >= AIN_CHANNELS_COUNT) return 0;
+
+    osc_channel_t* channel = osc_channel(n);
+
+    return channel->src_channel;
+}
+
+size_t osc_channel_rate(size_t n)
+{
+    if(n >= AIN_CHANNELS_COUNT) return 0;
+
+    osc_channel_t* channel = osc_channel(n);
+
+    return osc_channel_decim_scale(channel);
+}
+
+size_t osc_channel_skew(size_t n)
+{
+    if(n >= AIN_CHANNELS_COUNT) return 0;
+
+    osc_channel_t* channel = osc_channel(n);
+
+    return channel->skew;
+}
+
 osc_value_t osc_channel_value(size_t n, size_t index)
 {
 	if(n >= AIN_CHANNELS_COUNT) return 0;
@@ -431,11 +558,7 @@ err_t osc_channel_init(size_t n, osc_src_t src, osc_type_t type, osc_src_type_t 
 
 	osc_channel_t* channel = osc_channel(n);
 
-	channel->enabled = false;
-	channel->size = 0;
-	channel->count = 0;
-	channel->index = 0;
-	channel->data = NULL;
+	osc_channel_reset(n);
 
 	channel->src = src;
 	channel->type = type;
@@ -443,7 +566,6 @@ err_t osc_channel_init(size_t n, osc_src_t src, osc_type_t type, osc_src_type_t 
 	channel->src_channel = src_channel;
 
 	osc_channel_decim_init(channel, rate);
-	channel->skew = 0;
 
 	return E_NO_ERROR;
 }
@@ -467,6 +589,8 @@ static size_t osc_channel_count_to_size(osc_channel_t* channel, size_t count)
  * Вычисляет размер данных группы каналов,
  * эквивалентный по времени записи максимальной длине буфера.
  * Устанавливает значение размера в канале.
+ * Игнорирует запрещённые каналы и
+ * не настроенные каналы.
  * @param channels Каналы.
  * @param count Число каналов.
  * @return Размер.
@@ -483,8 +607,15 @@ static size_t osc_channels_calc_req_size(osc_channel_t* channels, size_t count)
     for(i = 0; i < count; i ++){
     	channel = osc_channel(i);
 
+    	// Пропуск запрещённых каналов.
+    	if(!channel->enabled) continue;
+
     	rate = osc_channel_decim_scale(channel);
-    	if(rate) channel->count = samples / rate;
+
+    	// Пропускаем не настроенные каналы.
+    	if(rate == 0) continue;
+
+    	/*if(rate)*/ channel->count = samples / rate;
 
     	// Минимальное число семплов.
     	if(channel->count == 0) channel->count = OSC_SAMPLES_MIN;
@@ -502,6 +633,8 @@ static size_t osc_channels_calc_req_size(osc_channel_t* channels, size_t count)
 
 /**
  * Выделяет буферы данных каналов.
+ * Игнорирует запрещённые каналы и
+ * каналы с нулевым числов семплов.
  * @param channels Каналы.
  * @param count Число каналов.
  * @param rate Относительный размер.
@@ -517,6 +650,12 @@ static err_t osc_alloc_buffers(osc_channel_t* channels, size_t count, iq15_t rat
     size_t i;
     for(i = 0; i < count; i ++){
         channel = &channels[i];
+
+    	// Пропуск запрещённых каналов.
+    	if(!channel->enabled) continue;
+
+        // Пропуск не настроенных каналов (нулевое количество семплов).
+        if(channel->count == 0) continue;
 
         // Необходимый размер.
         samples_count = channel->count;
@@ -546,21 +685,47 @@ static err_t osc_alloc_buffers(osc_channel_t* channels, size_t count, iq15_t rat
     return E_NO_ERROR;
 }
 
-err_t osc_init_channels(size_t count)
+/**
+ * Формирует карту используемых каналов.
+ */
+static void osc_make_used_map(void)
 {
-    if(count == 0) return E_INVALID_VALUE;
-    if(count >= OSC_COUNT_MAX) return E_OUT_OF_RANGE;
+	size_t n = 0;
+	osc_channel_t* channel = NULL;
 
+	size_t i;
+	for(i = 0; i < OSC_COUNT_MAX; i ++){
+		channel = osc_channel(i);
+
+		if(channel->count != 0){
+			osc.used_map[n] = i;
+			n ++;
+		}
+	}
+	osc.used_count = n;
+}
+
+/**
+ * Вычисляет время записи осциллограмм.
+ * @param size_rate Относительный размер данных.
+ * @return Время записи осциллограммы.
+ */
+static iq15_t osc_calc_time(iq15_t size_rate)
+{
+    // Время буфера для осциллограмм.
+    //iq15_t buf_time = IQ15F(OSC_SAMPLES_MAX, AIN_SAMPLE_FREQ);
+    // Поддержка буферов больше 32к семплов.
+    iq15_t buf_time = (iq15_t)LQ15F(OSC_SAMPLES_MAX, AIN_SAMPLE_FREQ);
+    iq15_t time = iq15_mull(buf_time, size_rate);
+
+    return time;
+}
+
+err_t osc_init_channels(void)
+{
     err_t err = E_NO_ERROR;
 
-    // Память будет освобождена,
-    // буферы каналов больше не действительны.
-    osc.used_channels = 0;
-
-    // Сбросим пул данных.
-    osc_pool_reset();
-
-    size_t total_req_size = osc_channels_calc_req_size(osc.channels, count);
+    size_t total_req_size = osc_channels_calc_req_size(osc.channels, OSC_COUNT_MAX);
     size_t total_size = OSC_SAMPLES_MAX;
 
     // Вычислим относительный размер для всех каналов.
@@ -569,11 +734,13 @@ err_t osc_init_channels(size_t count)
     iq15_t size_rate = (iq15_t)((((int64_t)total_size) << Q15_FRACT_BITS) / total_req_size);
 
     // Выделим память.
-    err = osc_alloc_buffers(osc.channels, count, size_rate);
+    err = osc_alloc_buffers(osc.channels, OSC_COUNT_MAX, size_rate);
     if(err != E_NO_ERROR) return err;
 
     // Используемые каналы.
-    osc.used_channels = count;
+    osc_make_used_map();
+
+    osc.time = osc_calc_time(size_rate);
 
     return E_NO_ERROR;
 }

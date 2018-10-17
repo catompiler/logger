@@ -12,15 +12,24 @@
 #include "gpio/gpio.h"
 #include "fatfs/ff.h"
 #include "fatfs/diskio.h"
-#define USE_SDCARD_FATFS_DISKIO
+//#define USE_SDCARD_FATFS_DISKIO
 #include "sdcard/sdcard.h"
+#include "sdcard/sdcard_diskio.h"
+#define USE_ROOTFS_FATFS_DISKIO
+#include "rootfs.h"
 #include "hires_timer.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "logger.h"
 #include "ain.h"
+#include "osc.h"
 #include "din.h"
 #include "dout.h"
+#include "trig.h"
+#include "conf.h"
+#include "dio_upd.h"
+#include "storage.h"
+#include <time.h>
 
 
 // UART.
@@ -51,6 +60,20 @@ static sdcard_t sdcard;
 // Скорости SPI для SD.
 #define SDCARD_SPI_SPEED_HIGH_BR (0)
 #define SDCARD_SPI_SPEED_LOW_BR (SPI_CR1_BR_2 | SPI_CR1_BR_1)
+
+// SDcard fatfs.
+FATFS sdcard_fatfs;
+
+// Попытки чтения карты перед сбросом.
+#define SDCARD_RETRIES 2
+
+// Сброс карты.
+#define SDCARD_REINITS 2
+
+
+// SDcard Diskfs.
+#define DISKFS_COUNT 1
+static diskfs_t diskfs[DISKFS_COUNT];
 
 // АЦП.
 // Число семплов АЦП1.
@@ -226,8 +249,8 @@ static void init_remap(void)
     RCC->APB2ENR |= RCC_APB2ENR_AFIOEN;
     // Disable jtag.
     AFIO->MAPR = AFIO_MAPR_SWJ_CFG_JTAGDISABLE |
-                 // USART3 partial.
-                 AFIO_MAPR_USART3_REMAP_PARTIALREMAP;
+            // USART3 partial.
+            AFIO_MAPR_USART3_REMAP_PARTIALREMAP;
 }
 
 /**
@@ -314,49 +337,49 @@ static void init_PDR(void)
 // Ключ запуска таймера.
 #define WDT_START_KEY 0xCCCC
 
-static void init_watchdog(void)
-{
-    // Включим внутренний осциллятор 40 кГц.
-    RCC->CSR |= RCC_CSR_LSION;
-    // Подождём запуска.
-    while(!(RCC->CSR & RCC_CSR_LSIRDY));
-
-    // Разблокируем защиту на запись.
-    IWDG->KR = WDT_UNPROTECT_KEY;
-
-    // Подождём сброса бита обновления предделителя.
-    while((IWDG->SR & IWDG_SR_PVU));
-    // Запишем значение предделителя.
-    IWDG->PR = 0x0;
-
-    // Подождём сброса бита обновления загружаемого значения.
-    while((IWDG->SR & IWDG_SR_RVU));
-    // Запишем загружаемое значение.
-    IWDG->RLR = 0x64;
-
-    // Заблокируем защиту на запись.
-    IWDG->KR = WDT_PROTECT_KEY;
-
-    // Получаем время счёта таймера 10 мс.
-
-    // Запустим таймер.
-    IWDG->KR = WDT_START_KEY;
-}
-
-static bool check_watchdog_reset(void)
-{
-    return (RCC->CSR & RCC_CSR_IWDGRSTF) != 0;
-}
-
-static void clear_watchdog_reset_flag(void)
-{
-    RCC->CSR |= RCC_CSR_RMVF;
-}
-
-static void reset_watchdog(void)
-{
-    IWDG->KR = WDT_RELOAD_KEY;
-}
+//static void init_watchdog(void)
+//{
+//    // Включим внутренний осциллятор 40 кГц.
+//    RCC->CSR |= RCC_CSR_LSION;
+//    // Подождём запуска.
+//    while(!(RCC->CSR & RCC_CSR_LSIRDY));
+//
+//    // Разблокируем защиту на запись.
+//    IWDG->KR = WDT_UNPROTECT_KEY;
+//
+//    // Подождём сброса бита обновления предделителя.
+//    while((IWDG->SR & IWDG_SR_PVU));
+//    // Запишем значение предделителя.
+//    IWDG->PR = 0x0;
+//
+//    // Подождём сброса бита обновления загружаемого значения.
+//    while((IWDG->SR & IWDG_SR_RVU));
+//    // Запишем загружаемое значение.
+//    IWDG->RLR = 0x64;
+//
+//    // Заблокируем защиту на запись.
+//    IWDG->KR = WDT_PROTECT_KEY;
+//
+//    // Получаем время счёта таймера 10 мс.
+//
+//    // Запустим таймер.
+//    IWDG->KR = WDT_START_KEY;
+//}
+//
+//static bool check_watchdog_reset(void)
+//{
+//    return (RCC->CSR & RCC_CSR_IWDGRSTF) != 0;
+//}
+//
+//static void clear_watchdog_reset_flag(void)
+//{
+//    RCC->CSR |= RCC_CSR_RMVF;
+//}
+//
+//static void reset_watchdog(void)
+//{
+//    IWDG->KR = WDT_RELOAD_KEY;
+//}
 
 /**
  * Инициализация тактирования на 72 МГц.
@@ -374,7 +397,7 @@ void init_rcc(void)
     RCC->CFGR |= RCC_CFGR_ADCPRE_DIV6;
     // USB - делитель на 1.5.
     RCC->CFGR &= ~RCC_CFGR_USBPRE;
-    
+
     // ФАПЧ.
     // Источник.
     RCC->CFGR |= RCC_CFGR_PLLSRC_HSE;
@@ -382,7 +405,7 @@ void init_rcc(void)
     RCC->CFGR &= ~RCC_CFGR_PLLXTPRE;
     // Умножитель частоты.
     RCC->CFGR |= RCC_CFGR_PLLMULL9;
-    
+
     // Переход на тактирование от PLL.
     // Включение внешнего осциллятора.
     RCC->CR |= RCC_CR_HSEON;
@@ -392,25 +415,25 @@ void init_rcc(void)
     RCC->CR |= RCC_CR_PLLON;
     // Подождём запуска ФАПЧ.
     while(!(RCC->CR & RCC_CR_PLLRDY));
-    
+
     // Настройка чтения флеш-памяти.
     // Запретим доступ по половине цикла тактирования.
     // Доступ по половине цикла тактирования запрещён при загрузке.
     //FLASH->ACR &= ~FLASH_ACR_HLFCYA;
     // Установим задержку чтения из флеш-памяти в 2 такта.
     FLASH->ACR |= FLASH_ACR_LATENCY_2;
-    
+
     // Разрешим буфер предвыборки.
     // Буфер предвыборки включен после загрузки.
     //FLASH->ACR |= FLASH_ACR_PRFTBE;
     // Подождём включения предвыборки.
     //while(!(FLASH->ACR & FLASH_ACR_PRFTBS));
-    
+
     // Перейдём на тактирование от ФАПЧ.
     RCC->CFGR |= RCC_CFGR_SW_PLL;
     // Подождём перехода на ФАПЧ.
     while(!(RCC->CFGR & RCC_CFGR_SWS_PLL));
-    
+
     // Установим значение частоты ядра.
     SystemCoreClock = 72000000;
 }
@@ -455,6 +478,27 @@ void init_rtc(void)
     //rtc_set_second_callback(rtc_on_second);
 }
 
+DWORD get_fattime(void)
+{
+    time_t t = time(NULL);
+    struct tm* lt = localtime(&t);
+
+    DWORD ft = 0;
+
+    if(lt->tm_year < 80){
+        lt->tm_year = 80;
+    }
+
+    ft |= (lt->tm_sec / 2)   << 0;
+    ft |= (lt->tm_min) 	     << 5;
+    ft |= (lt->tm_hour)      << 11;
+    ft |= (lt->tm_mday)      << 16;
+    ft |= (lt->tm_mon)       << 21;
+    ft |= (lt->tm_year - 80) << 25;
+
+    return ft;
+}
+
 // 12800 Hz.
 #define ADC_TIM_PSC 25
 #define ADC_TIM_PERIOD 225
@@ -492,9 +536,9 @@ static void init_adc_dma(void)
     ADC12_DMA_CH->CPAR = (uint32_t)&ADC1->DR;
     ADC12_DMA_CH->CNDTR = ADC12_DMA_TRANSFERS;
     ADC12_DMA_CH->CCR = DMA_CCR1_PL_1 | DMA_CCR1_MSIZE_1 | DMA_CCR1_PSIZE_1 |
-                        DMA_CCR1_MINC | DMA_CCR1_CIRC |
-                        DMA_CCR1_TCIE |
-                        DMA_CCR1_EN;
+            DMA_CCR1_MINC | DMA_CCR1_CIRC |
+            DMA_CCR1_TCIE |
+            DMA_CCR1_EN;
 
 
     dma_channel_lock(ADC3_DMA_CH);
@@ -502,8 +546,8 @@ static void init_adc_dma(void)
     ADC3_DMA_CH->CPAR = (uint32_t)&ADC3->DR;
     ADC3_DMA_CH->CNDTR = ADC3_DMA_TRANSFERS;
     ADC3_DMA_CH->CCR = DMA_CCR1_PL_1 | DMA_CCR1_MSIZE_0 | DMA_CCR1_PSIZE_0 |
-                       DMA_CCR1_MINC | DMA_CCR1_CIRC |
-                       DMA_CCR1_EN;
+            DMA_CCR1_MINC | DMA_CCR1_CIRC |
+            DMA_CCR1_EN;
 }
 
 static void init_adc_gpio(void)
@@ -558,16 +602,16 @@ static void init_adc1(void)
 {
     // Комбинированный режим - обычные каналы (одновременно).
     ADC1->CR1 = ADC_CR1_DUALMOD_2 | ADC_CR1_DUALMOD_1 |
-                // Режим сканирования.
-                ADC_CR1_SCAN;
+            // Режим сканирования.
+            ADC_CR1_SCAN;
     // Запуск конверсии по внешнему триггеру.
     ADC1->CR2 = ADC_CR2_EXTTRIG |
-                // Триггер - Timer1 CC3 event.
-                ADC_CR2_EXTSEL_1 |
-                // Разрешение DMA.
-                ADC_CR2_DMA |
-                // Включение АЦП.
-                ADC_CR2_ADON;
+            // Триггер - Timer1 CC3 event.
+            ADC_CR2_EXTSEL_1 |
+            // Разрешение DMA.
+            ADC_CR2_DMA |
+            // Включение АЦП.
+            ADC_CR2_ADON;
     // Время конверсии.
     // Канал 15.
     ADC1->SMPR1 = ADC_SMPR1_SMP15_0;
@@ -578,24 +622,24 @@ static void init_adc1(void)
     ADC1->SQR1 = ADC_SQR1_L_0;
     // Первая конверсия - канал 15.
     ADC1->SQR3 = ADC_SQR3_SQ1_3 | ADC_SQR3_SQ1_2 | ADC_SQR3_SQ1_1 | ADC_SQR3_SQ1_0 |
-                 // Вторая конверсия - канал 9.
-                 ADC_SQR3_SQ2_3 | ADC_SQR3_SQ2_0;
+            // Вторая конверсия - канал 9.
+            ADC_SQR3_SQ2_3 | ADC_SQR3_SQ2_0;
 }
 
 static void init_adc2(void)
 {
     // Комбинированный режим - обычные каналы (одновременно).
     ADC2->CR1 = ADC_CR1_DUALMOD_2 | ADC_CR1_DUALMOD_1 |
-                // Режим сканирования.
-                ADC_CR1_SCAN;
+            // Режим сканирования.
+            ADC_CR1_SCAN;
     // Запуск конверсии по внешнему триггеру.
     ADC2->CR2 = ADC_CR2_EXTTRIG |
-                // Триггер - SWSTART.
-                ADC_CR2_EXTSEL |
-                // Разрешение DMA.
-                ADC_CR2_DMA |
-                // Включение АЦП.
-                ADC_CR2_ADON;
+            // Триггер - SWSTART.
+            ADC_CR2_EXTSEL |
+            // Разрешение DMA.
+            ADC_CR2_DMA |
+            // Включение АЦП.
+            ADC_CR2_ADON;
     // Время конверсии.
     // Канал 8.
     ADC2->SMPR2 = ADC_SMPR2_SMP8_0;
@@ -606,8 +650,8 @@ static void init_adc2(void)
     ADC2->SQR1 = ADC_SQR1_L_0;
     // Первая конверсия - канал 8.
     ADC2->SQR3 = ADC_SQR3_SQ1_3 |
-                 // Вторая конверсия - канал 14.
-                 ADC_SQR3_SQ2_3 | ADC_SQR3_SQ2_2 | ADC_SQR3_SQ2_1;
+            // Вторая конверсия - канал 14.
+            ADC_SQR3_SQ2_3 | ADC_SQR3_SQ2_2 | ADC_SQR3_SQ2_1;
 }
 
 static void init_adc3(void)
@@ -616,12 +660,12 @@ static void init_adc3(void)
     ADC3->CR1 = ADC_CR1_SCAN;
     // Запуск конверсии по внешнему триггеру.
     ADC3->CR2 = ADC_CR2_EXTTRIG |
-                // Триггер - Timer1 CC3 event.
-                ADC_CR2_EXTSEL_1 |
-                // Разрешение DMA.
-                ADC_CR2_DMA |
-                // Включение АЦП.
-                ADC_CR2_ADON;
+            // Триггер - Timer1 CC3 event.
+            ADC_CR2_EXTSEL_1 |
+            // Разрешение DMA.
+            ADC_CR2_DMA |
+            // Включение АЦП.
+            ADC_CR2_ADON;
     // Время конверсии.
     // Канал 12.
     ADC3->SMPR1 = ADC_SMPR1_SMP12_0;
@@ -658,35 +702,40 @@ static void init_adc(void)
 
 static void init_din_channel(size_t n, GPIO_TypeDef* gpio, gpio_pin_t pin)
 {
-	gpio_init(gpio, pin, DIN_MODE, DIN_CONF);
-	din_channel_init(n, gpio, pin);
+    gpio_init(gpio, pin, DIN_MODE, DIN_CONF);
+    din_channel_init(n, gpio, pin);
 }
 
 static void init_din(void)
 {
-	din_init();
+    din_init();
 
-	init_din_channel(0, DIN_1_GPIO, DIN_1_PIN);
-	init_din_channel(1, DIN_2_GPIO, DIN_2_PIN);
-	init_din_channel(2, DIN_3_GPIO, DIN_3_PIN);
-	init_din_channel(3, DIN_4_GPIO, DIN_4_PIN);
-	init_din_channel(4, DIN_5_GPIO, DIN_5_PIN);
+    init_din_channel(0, DIN_1_GPIO, DIN_1_PIN);
+    init_din_channel(1, DIN_2_GPIO, DIN_2_PIN);
+    init_din_channel(2, DIN_3_GPIO, DIN_3_PIN);
+    init_din_channel(3, DIN_4_GPIO, DIN_4_PIN);
+    init_din_channel(4, DIN_5_GPIO, DIN_5_PIN);
 }
 
 static void init_dout_channel(size_t n, GPIO_TypeDef* gpio, gpio_pin_t pin)
 {
-	gpio_init(gpio, pin, DOUT_MODE, DOUT_CONF);
-	dout_channel_init(n, gpio, pin);
+    gpio_init(gpio, pin, DOUT_MODE, DOUT_CONF);
+    dout_channel_init(n, gpio, pin);
 }
 
 static void init_dout(void)
 {
-	dout_init();
+    dout_init();
 
-	init_dout_channel(0, DOUT_1_GPIO, DOUT_1_PIN);
-	init_dout_channel(1, DOUT_2_GPIO, DOUT_2_PIN);
-	init_dout_channel(2, DOUT_3_GPIO, DOUT_3_PIN);
-	init_dout_channel(3, DOUT_4_GPIO, DOUT_4_PIN);
+    init_dout_channel(0, DOUT_1_GPIO, DOUT_1_PIN);
+    init_dout_channel(1, DOUT_2_GPIO, DOUT_2_PIN);
+    init_dout_channel(2, DOUT_3_GPIO, DOUT_3_PIN);
+    init_dout_channel(3, DOUT_4_GPIO, DOUT_4_PIN);
+}
+
+static void init_dio_upd(void)
+{
+    dio_upd_init();
 }
 
 static void init_usart_buf(void)
@@ -719,14 +768,14 @@ static void init_spi(void)
     // GPIO.
     // PB13 - SCK, PB15 - MOSI: Out AF PP.
     gpio_init(GPIOB, GPIO_PIN_13 | GPIO_PIN_15,
-              GPIO_MODE_OUT_50MHz, GPIO_CONF_OUT_AF_PP);
+            GPIO_MODE_OUT_50MHz, GPIO_CONF_OUT_AF_PP);
     // PB14 - MISO: In PU.
     gpio_init(GPIOB, GPIO_PIN_14, GPIO_MODE_IN, GPIO_CONF_IN_PUPD);
     gpio_set_pullup(GPIOB, GPIO_PIN_14);
 
     // SPI.
     SPI2->CR1 = SPI_CR1_SSM | SPI_CR1_SSI | SPI_CR1_SPE | SPI_CR1_MSTR |
-                SDCARD_SPI_SPEED_LOW_BR;
+            SDCARD_SPI_SPEED_LOW_BR;
 
     spi_bus_init_t is;
     is.dma_rx_channel = DMA1_Channel4;
@@ -839,7 +888,22 @@ static void init_sdcard(void)
     sdcard_init(&sdcard, &is);
     sdcard_set_crc_enabled(&sdcard, true);
 
-    sdcard_setup_diskio(&sdcard, 1);
+    //sdcard_setup_diskio(&sdcard, 1);
+}
+
+static void init_rootfs(void)
+{
+    diskfs[0].disk = &sdcard;
+    diskfs[0].disk_initialize = (rootfs_disk_initialize_t)sdcard_disk_initialize;
+    diskfs[0].disk_status = (rootfs_disk_status_t)sdcard_disk_status;
+    diskfs[0].disk_read = (rootfs_disk_read_t)sdcard_disk_read;
+    diskfs[0].disk_write = (rootfs_disk_write_t)sdcard_disk_write;
+    diskfs[0].disk_ioctl = (rootfs_disk_ioctl_t)sdcard_disk_ioctl;
+    diskfs[0].fatfs = &sdcard_fatfs;
+    diskfs[0].retries = SDCARD_RETRIES;
+    diskfs[0].reinits = SDCARD_REINITS;
+
+    rootfs_init(diskfs, DISKFS_COUNT);
 }
 
 static void init_ain(void)
@@ -847,51 +911,71 @@ static void init_ain(void)
     ain_init();
 }
 
+static void init_osc(void)
+{
+    osc_init();
+}
+
+static void init_trig(void)
+{
+    trig_init();
+}
+
+static void init_conf(void)
+{
+    conf_init();
+}
+
+static void init_storage(void)
+{
+    storage_init();
+}
+
 static void init_logger(void)
 {
-    logger_init(&sdcard);
+    logger_init();
 }
 
-static bool init_card(void)
-{
-    err_t err = E_NO_ERROR;
-    uint64_t capacity;
-
-    err = sdcard_init_card(&sdcard);
-    if(err != E_NO_ERROR){
-        printf("SD card init failed! (err: %d)\r\n", (int)err);
-        return false;
-    }
-
-    static const char* card_types_str[5] = {
-        "Unknown",
-        "MMC",
-        "SDSCv1",
-        "SDSCv2",
-        "SDHC or SDXC"
-    };
-
-    printf("SD card type: %s\r\n", card_types_str[sdcard_card_type(&sdcard)]);
-
-    capacity = sdcard_capacity(&sdcard);
-    printf("SD card size: %u Mbytes\r\n", (unsigned int)(capacity >> 20)); // Bytes -> MBytes.
-
-    printf("SD sector size: %u\r\n", (unsigned int)sdcard_sector_size(&sdcard));
-    printf("SD sectors count: %u\r\n", (unsigned int)sdcard_sectors_count(&sdcard));
-
-    printf("SD read/write block size: %u\r\n", (unsigned int)sdcard_block_len(&sdcard));
-    printf("SD erase block size: %u\r\n", (unsigned int)sdcard_erase_block_len(&sdcard));
-
-    /*err = sdcard_select(&sdcard);
-    if(err == E_NO_ERROR){
-        err = sdcard_set_crc_enabled(&sdcard, true);
-    }
-    if(err != E_NO_ERROR){
-        printf("Error change crc enabled!\r\n");
-    }*/
-
-    return true;
-}
+//static bool init_card(void)
+//{
+//    err_t err = E_NO_ERROR;
+//    uint64_t capacity;
+//
+//    err = sdcard_init_card(&sdcard);
+//    if(err != E_NO_ERROR){
+//        printf("SD card init failed! (err: %d)\r\n", (int)err);
+//        return false;
+//    }
+//
+//    static const char* card_types_str[5] = {
+//        "Unknown",
+//        "MMC",
+//        "SDSCv1",
+//        "SDSCv2",
+//        "SDHC or SDXC"
+//    };
+//
+//    printf("SD card type: %s\r\n", card_types_str[sdcard_card_type(&sdcard)]);
+//
+//    capacity = sdcard_capacity(&sdcard);
+//    printf("SD card size: %u Mbytes\r\n", (unsigned int)(capacity >> 20)); // Bytes -> MBytes.
+//
+//    printf("SD sector size: %u\r\n", (unsigned int)sdcard_sector_size(&sdcard));
+//    printf("SD sectors count: %u\r\n", (unsigned int)sdcard_sectors_count(&sdcard));
+//
+//    printf("SD read/write block size: %u\r\n", (unsigned int)sdcard_block_len(&sdcard));
+//    printf("SD erase block size: %u\r\n", (unsigned int)sdcard_erase_block_len(&sdcard));
+//
+//    /*err = sdcard_select(&sdcard);
+//    if(err == E_NO_ERROR){
+//        err = sdcard_set_crc_enabled(&sdcard, true);
+//    }
+//    if(err != E_NO_ERROR){
+//        printf("Error change crc enabled!\r\n");
+//    }*/
+//
+//    return true;
+//}
 
 /*
  * FreeRTOS
@@ -899,8 +983,8 @@ static bool init_card(void)
  * functions.
  */
 void vApplicationGetIdleTaskMemory( StaticTask_t **ppxIdleTaskTCBBuffer,
-                                    StackType_t **ppxIdleTaskStackBuffer,
-                                    uint32_t *pulIdleTaskStackSize )
+        StackType_t **ppxIdleTaskStackBuffer,
+        uint32_t *pulIdleTaskStackSize )
 {
     static StaticTask_t xIdleTaskTCB;
     static StackType_t uxIdleTaskStack[ configMINIMAL_STACK_SIZE ];
@@ -911,8 +995,8 @@ void vApplicationGetIdleTaskMemory( StaticTask_t **ppxIdleTaskTCBBuffer,
 }
 
 void vApplicationGetTimerTaskMemory( StaticTask_t **ppxTimerTaskTCBBuffer,
-                                     StackType_t **ppxTimerTaskStackBuffer,
-                                     uint32_t *pulTimerTaskStackSize )
+        StackType_t **ppxTimerTaskStackBuffer,
+        uint32_t *pulTimerTaskStackSize )
 {
     static StaticTask_t xTimerTaskTCB;
     static StackType_t uxTimerTaskStack[ configTIMER_TASK_STACK_DEPTH ];
@@ -974,13 +1058,18 @@ int main(void)
 
     init_adc();
 
-    init_din();
-    init_dout();
-
     init_spi();
     init_sdcard();
+    init_rootfs();
 
+    init_din();
+    init_dout();
+    init_dio_upd();
     init_ain();
+    init_osc();
+    init_trig();
+    init_conf();
+    init_storage();
     init_logger();
 
     init_interrupts();

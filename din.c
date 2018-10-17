@@ -1,5 +1,10 @@
 #include "din.h"
 #include "defs/defs.h"
+#include <string.h>
+
+
+//! Размер буфера имени.
+#define DIO_NAME_BUF_SIZE (DIN_NAME_LEN + 1)
 
 
 //! Структура канала цифрового входа.
@@ -8,6 +13,7 @@ typedef struct _Din_Channel {
 	gpio_pin_t pin; //!< Пин.
 	din_type_t type; //!< Тип.
 	q15_t time; //!< Время для изменения, доли секунды.
+	char name[DIO_NAME_BUF_SIZE]; //!< Имя цифрового входа.
 	q15_t cur_time; //!< Время с последнего изменения, доли секунды.
 	bool changed; //!< Флаг изменения с последней проверки.
 	din_state_t state; //!< Состояние входа.
@@ -62,7 +68,7 @@ err_t din_channel_init(size_t n, GPIO_TypeDef* gpio, gpio_pin_t pin)
 	return E_NO_ERROR;
 }
 
-err_t din_channel_setup(size_t n, din_type_t type, q15_t time)
+err_t din_channel_setup(size_t n, din_type_t type, q15_t time, const char* name)
 {
 	if(n >= DIN_COUNT) return E_OUT_OF_RANGE;
 	if(time <= 0) return E_INVALID_VALUE;
@@ -71,6 +77,14 @@ err_t din_channel_setup(size_t n, din_type_t type, q15_t time)
 
 	channel->type = type;
 	channel->time = time;
+
+    size_t len = strlen(name);
+
+    if(len >= DIN_NAME_LEN) len = DIN_NAME_LEN;
+
+    memcpy(channel->name, name, len);
+
+    channel->name[len] = '\0';
 
 	return E_NO_ERROR;
 }
@@ -120,4 +134,12 @@ bool din_changed(size_t n)
 	return channel->changed;
 }
 
+const char* din_name(size_t n)
+{
+    if(n >= DIN_COUNT) return NULL;
+
+    din_channel_t* channel = din_channel(n);
+
+    return channel->name;
+}
 

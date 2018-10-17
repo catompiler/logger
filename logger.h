@@ -6,10 +6,10 @@
 #define LOGGER_H_
 
 #include "errors/errors.h"
-#include "sdcard/sdcard.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include "q15.h"
 
 
 //! Перечисление состояний логгера.
@@ -21,8 +21,22 @@ typedef enum _Logger_State {
 } logger_state_t;
 
 
-extern err_t logger_init(sdcard_t* sdcard);
+/**
+ * Инициализирует логгер.
+ * @return Код ошибки.
+ */
+extern err_t logger_init(void);
 
-//extern err_t logger_process_
+/**
+ * Получает состояние логгера.
+ * @return Состояние логгера.
+ */
+extern logger_state_t logger_state(void);
+
+/**
+ * Устанавливает долю времени осциллограммы после события.
+ * @param time Доля времения осциллограммы после события.
+ */
+extern void logger_set_osc_after_event_time(q15_t time);
 
 #endif /* LOGGER_H_ */

@@ -19,6 +19,9 @@
 //! Разрешение АЦП, бит.
 #define ADC_BITS 12
 
+//! Разрешение с учётом знака АЦП, бит.
+#define ADC_BITS_SIGNED (ADC_BITS - 1)
+
 //! Размер буфера для имени.
 #define AIN_NAME_BUF_SIZE ((AIN_NAME_LEN) + 1)
 
@@ -395,10 +398,18 @@ static void ain_process_channel_adc_data(size_t n, uint16_t adc_data)
     // Значение выборки АЦП.
     q15_t sample = 0;
 
-    // Вычтем среднюю точку.
-    sample = (q15_t)((int32_t)adc_data - (int32_t)channel->adc_offset);
-    // Преобразуем в формат Q15.
-    sample = QNtoM(sample, ADC_BITS, Q15_FRACT_BITS);
+    // Если канал знаковый.
+    if(channel->adc_offset != 0){
+        // Вычтем среднюю точку.
+        sample = (q15_t)((int32_t)adc_data - (int32_t)channel->adc_offset);
+        // Преобразуем в формат Q15.
+        sample = QNtoM(sample, ADC_BITS_SIGNED, Q15_FRACT_BITS);
+    }else{
+        // Возьмём полную амплитуду.
+        sample = (q15_t)adc_data;
+        // Преобразуем в формат Q15.
+        sample = QNtoM(sample, ADC_BITS, Q15_FRACT_BITS);
+    }
     // Умножим на мгновенный кэффициент пропорциональности.
     sample = q15_mul(sample, channel->adc_gain);
 

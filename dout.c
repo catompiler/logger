@@ -1,5 +1,6 @@
 #include "dout.h"
 #include "defs/defs.h"
+#include <string.h>
 
 
 //! Структура канала цифрового выхода.

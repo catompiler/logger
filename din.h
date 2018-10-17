@@ -15,6 +15,9 @@
 //! Число цифровых входов.
 #define DIN_COUNT 5
 
+//! Число символов имени.
+#define DIN_NAME_LEN 16
+
 
 //! Состояние входа.
 typedef enum _Din_State {
@@ -48,9 +51,10 @@ extern err_t din_channel_init(size_t n, GPIO_TypeDef* gpio, gpio_pin_t pin);
  * @param n Номер канала.
  * @param type Тип.
  * @param time Время установления значения, доли секунды.
+ * @param name Имя канала.
  * @return Код ошибки.
  */
-extern err_t din_channel_setup(size_t n, din_type_t type, q15_t time);
+extern err_t din_channel_setup(size_t n, din_type_t type, q15_t time, const char* name);
 
 /**
  * Проверяет входа.
@@ -71,5 +75,12 @@ extern din_state_t din_state(size_t n);
  * @return Флаг изменения.
  */
 extern bool din_changed(size_t n);
+
+/**
+ * Получает имя канала входа.
+ * @param n Номер канала.
+ * @return Имя.
+ */
+extern const char* din_name(size_t n);
 
 #endif /* DIN_H_ */

@@ -4,7 +4,8 @@ TARGET    = main
 # Объектные файлы.
 OBJECTS   = main.o FreeRTOS-openocd.o system_stm32f10x.o startup.o\
 			logger.o ain.o fir.o decim.o decim_avg.o mwin.o osc.o\
-			hires_timer.o din.o dout.o
+			hires_timer.o din.o dout.o trig.o ini.o conf.o rootfs.o\
+			dio_upd.o storage.o event.o q15_str.o
 
 # fatfs.
 OBJECTS  += fatfs/ff.o fatfs/ffsystem.o fatfs/ffunicode.o
@@ -12,7 +13,7 @@ OBJECTS  += fatfs/ff.o fatfs/ffsystem.o fatfs/ffunicode.o
 # Собственные библиотеки в исходниках.
 SRC_LIBS  = usart_buf circular_buffer newlib_stubs\
 			spi dma mutex delay gpio future crc16_ccitt\
-            sdcard rtc
+            sdcard sdcard_diskio rtc
 
 # Макросы.
 DEFINES  += RTC_TIMEOFDAY
