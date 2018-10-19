@@ -61,7 +61,7 @@ typedef struct _Osc {
     bool pause_enabled; //!< Разрешение паузы.
     size_t pause_counter; //!< Счётчик семплов до паузы.
     size_t pause_samples; //!< Число семплов до паузы.
-    struct timeval paused_time; //!< Время останова записи осциллограммы.
+    struct timeval end_time; //!< Время последнего семпла осциллограммы.
     osc_pool_t pool; //!< Пул данных.
 } osc_t;
 
@@ -320,13 +320,14 @@ void osc_append(void)
 	    // Если достигли окончания интервала ожидания.
 	    if(osc.pause_counter == osc.pause_samples){
 	        // Если время останова нулевое (не зафиксировано).
-	        if(!timerisset(&osc.paused_time)){
+	        if(!timerisset(&osc.end_time)){
 	            // Получим текущее время.
-	            gettimeofday(&osc.paused_time, NULL);
+	            gettimeofday(&osc.end_time, NULL);
 	            // Время между семплами.
-	            struct timeval sample_tv = {0, AIN_SAMPLE_PERIOD_US};
+	            struct timeval sample_tv;
+	            osc_sample_period(&sample_tv);
 	            // Вычтем время с последнего семпла.
-	            timersub(&osc.paused_time, &sample_tv, &osc.paused_time);
+	            timersub(&osc.end_time, &sample_tv, &osc.end_time);
 	        }
 	        // Возврат.
 	        return;
@@ -462,7 +463,7 @@ void osc_pause(iq15_t time)
     lq15_t time_samples = iq15_imull(time, AIN_SAMPLE_FREQ);
     size_t samples = (size_t)IQ15_INT(time_samples);
 
-    timerclear(&osc.paused_time);
+    timerclear(&osc.end_time);
     osc.pause_counter = 0;
     osc.pause_samples = samples;
     osc.pause_enabled = true;
@@ -478,17 +479,39 @@ void osc_resume(void)
     osc.pause_enabled = false;
 }
 
-size_t osc_paused_samples(void)
-{
-    return osc.pause_samples;
-}
-
-void osc_paused_time(struct timeval* tv)
+void osc_end_time(struct timeval* tv)
 {
     if(!tv) return;
 
-    tv->tv_sec = osc.paused_time.tv_sec;
-    tv->tv_usec = osc.paused_time.tv_usec;
+    tv->tv_sec = osc.end_time.tv_sec;
+    tv->tv_usec = osc.end_time.tv_usec;
+}
+
+void osc_start_time(struct timeval* tv)
+{
+    if(!tv) return;
+
+    struct timeval time_tv;
+    osc_end_time(&time_tv);
+
+    struct timeval period_tv;
+    osc_sample_period(&period_tv);
+
+    size_t i;
+    for(i = 0; i < osc.samples; i ++){
+        timersub(&time_tv, &period_tv, &time_tv);
+    }
+
+    tv->tv_sec = time_tv.tv_sec;
+    tv->tv_usec = time_tv.tv_usec;
+}
+
+void osc_sample_period(struct timeval* tv)
+{
+    if(!tv) return;
+
+    tv->tv_sec = 0;
+    tv->tv_usec = AIN_SAMPLE_PERIOD_US * osc_rate();
 }
 
 err_t osc_channel_set_enabled(size_t n, bool enabled)

@@ -142,16 +142,22 @@ extern bool osc_paused(void);
 extern void osc_resume(void);
 
 /**
- * Получает количество семплов после паузы осциллограммы.
- * @return Количество семплов после паузы осциллограммы.
+ * Получает время конца осциллограммы.
+ * @param tv Время.
  */
-extern size_t osc_paused_samples(void);
+extern void osc_end_time(struct timeval* tv);
 
 /**
- * Получает время останова записи осциллограммы.
- * @param tv Время останов записи осциллограммы.
+ * Получает время начала осциллограммы.
+ * @param tv Время.
  */
-extern void osc_paused_time(struct timeval* tv);
+extern void osc_start_time(struct timeval* tv);
+
+/**
+ * Получает время (период) семпла осциллограммы.
+ * @param tv Время.
+ */
+extern void osc_sample_period(struct timeval* tv);
 
 /**
  * Устанавливает разрешение записи осциллограммы канала.

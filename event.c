@@ -28,6 +28,13 @@ static char evbuf[EVENT_WRITE_BUF_SIZE];
 static const char* evdelim = ";";
 
 
+//! Ограничивает микросекунды отметки времени.
+ALWAYS_INLINE static suseconds_t event_osc_clamp_usec(suseconds_t usec)
+{
+    if(usec > EVENT_USEC_MAX) usec = EVENT_USEC_MAX;
+    return usec;
+}
+
 //! Получает имя канала осциллограммы.
 static const char* event_osc_channel_name(size_t osc_n)
 {
@@ -148,7 +155,7 @@ static err_t event_write_oscs_ch_scales(FIL* f)
 }
 #endif
 
-static err_t event_write_oscs_chs_data(FIL* f, size_t index)
+static err_t event_write_oscs_chs_data(FIL* f, size_t index, struct timeval* time_tv)
 {
     size_t i;
     size_t used_count = osc_used_channels();
@@ -161,7 +168,14 @@ static err_t event_write_oscs_chs_data(FIL* f, size_t index)
 #endif
     iq15_t value;
 
-    f_puts("Data", f);
+    //f_puts("Data", f);
+    //if(f_error(f)) return E_IO_ERROR;
+    struct tm* end_tm = localtime(&time_tv->tv_sec);
+    suseconds_t usec = event_osc_clamp_usec(time_tv->tv_usec);
+
+    f_printf(f, "Data %02d/%02d/%04d,%02d:%02d:%02d.%06d", //evdelim,
+                end_tm->tm_mday, end_tm->tm_mon, end_tm->tm_year + 1900,
+                end_tm->tm_hour, end_tm->tm_min, end_tm->tm_sec, usec);
     if(f_error(f)) return E_IO_ERROR;
 
     // Для отладки продолжение вывода строк данных.
@@ -208,9 +222,17 @@ static err_t event_write_oscs_chs_datas(FIL* f)
 
     size_t max_samples = osc_samples();
 
+    struct timeval time_tv;
+    struct timeval period_tv;
+
+    osc_start_time(&time_tv);
+    osc_sample_period(&period_tv);
+
     for(i = 0; i < max_samples; i ++){
-        err = event_write_oscs_chs_data(f, i);
+        err = event_write_oscs_chs_data(f, i, &time_tv);
         if(err != E_NO_ERROR) return err;
+
+        timeradd(&time_tv, &period_tv, &time_tv);
     }
 
     return E_NO_ERROR;
@@ -255,8 +277,7 @@ static err_t event_write_impl(FIL* f, struct tm* ev_tm, event_t* event)
                 ev_tm->tm_mday, ev_tm->tm_mon, ev_tm->tm_year + 1900);
     if(f_error(f)) return E_IO_ERROR;
 
-    int usec = event->time.tv_usec;
-    if(usec > EVENT_USEC_MAX) usec = EVENT_USEC_MAX; // clamp to MsMsMsUsUsUs.
+    suseconds_t usec = event_osc_clamp_usec(event->time.tv_usec);
 
     f_printf(f, "Time%s%02d:%02d:%02d.%06d\n", evdelim,
                 ev_tm->tm_hour, ev_tm->tm_min, ev_tm->tm_sec, usec);
@@ -280,22 +301,6 @@ static err_t event_write_impl(FIL* f, struct tm* ev_tm, event_t* event)
     if(f_error(f)) return E_IO_ERROR;
 
     f_printf(f, "Samples%s%u\n", evdelim, osc_samples());
-    if(f_error(f)) return E_IO_ERROR;
-
-    // Время останова записи осциллограммы.
-    struct timeval end_time;
-    osc_paused_time(&end_time);
-    // Преобразовать из UNIX time.
-    struct tm* end_tm = localtime(&end_time.tv_sec);
-    // clamp to MsMsMsUsUsUs.
-    usec = end_time.tv_usec;
-    if(usec > EVENT_USEC_MAX) usec = EVENT_USEC_MAX;
-
-    f_printf(f, "End time%s%02d:%02d:%02d.%06d\n", evdelim,
-                end_tm->tm_hour, end_tm->tm_min, end_tm->tm_sec, usec);
-    if(f_error(f)) return E_IO_ERROR;
-
-    f_printf(f, "End samples%s%u\n", evdelim, osc_paused_samples());
     if(f_error(f)) return E_IO_ERROR;
 
     err = event_write_oscs_impl(f);
