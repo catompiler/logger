@@ -73,4 +73,14 @@ ALWAYS_INLINE static size_t decim_scale(decim_t* decim)
     return decim->scale;
 }
 
+/**
+ * Получает смещение с последней выборки исходного сигнала.
+ * @param decim Дециматор.
+ * @return Смещение.
+ */
+ALWAYS_INLINE static size_t decim_skew(decim_t* decim)
+{
+    return decim->index;
+}
+
 #endif /* DECIM_H_ */

@@ -30,6 +30,7 @@
 #include "dio_upd.h"
 #include "storage.h"
 #include <time.h>
+#include "utils/critical.h"
 
 
 // UART.
@@ -74,6 +75,9 @@ FATFS sdcard_fatfs;
 // SDcard Diskfs.
 #define DISKFS_COUNT 1
 static diskfs_t diskfs[DISKFS_COUNT];
+
+// RTC.
+static struct timeval rtc_hires_tv = {0};
 
 // АЦП.
 // Число семплов АЦП1.
@@ -134,8 +138,8 @@ static uint16_t adc_cal[ADC_SAMPLES_COUNT];
 
 // Приоритеты прерываний.
 #define IRQ_PRIOR_MAX (8)
-#define IRQ_PRIOR_HIRES_TIMER (IRQ_PRIOR_MAX - 1)
-#define IRQ_PRIOR_RTC (IRQ_PRIOR_MAX + 0)
+#define IRQ_PRIOR_HIRES_TIMER (IRQ_PRIOR_MAX - 2)
+#define IRQ_PRIOR_RTC (IRQ_PRIOR_MAX - 1)
 #define IRQ_PRIOR_ADC_DMA (IRQ_PRIOR_MAX + 1)
 #define IRQ_PRIOR_USART_BUF (IRQ_PRIOR_MAX + 2)
 #define IRQ_PRIOR_SPI (IRQ_PRIOR_MAX + 5)
@@ -217,6 +221,11 @@ void DMA1_Channel1_IRQHandler(void)
             portYIELD_FROM_ISR(pxHigherPriorityTaskWoken);
         }
     }
+}
+
+void RTC_IRQHandler(void)
+{
+    rtc_interrupt_handler();
 }
 
 void TIM6_IRQHandler(void)
@@ -316,6 +325,9 @@ static void init_interrupts(void)
 
     NVIC_SetPriority(TIM6_IRQn, IRQ_PRIOR_HIRES_TIMER);
     NVIC_EnableIRQ(TIM6_IRQn);
+
+    NVIC_SetPriority(RTC_IRQn, IRQ_PRIOR_RTC);
+    NVIC_EnableIRQ(RTC_IRQn);
 }
 
 /**
@@ -438,9 +450,27 @@ void init_rcc(void)
     SystemCoreClock = 72000000;
 }
 
-/*static void rtc_on_second(void)
+static suseconds_t rtc_get_usec(void)
 {
-}*/
+    struct timeval tv;
+    struct timeval sec_tv;
+
+    CRITICAL_ENTER();
+    sec_tv.tv_sec = rtc_hires_tv.tv_sec;
+    sec_tv.tv_usec = rtc_hires_tv.tv_usec;
+    CRITICAL_EXIT();
+
+    hires_timer_value(&tv);
+
+    timersub(&tv, &sec_tv, &tv);
+
+    return tv.tv_usec;
+}
+
+static void rtc_on_second(void)
+{
+    hires_timer_value(&rtc_hires_tv);
+}
 
 void init_rtc(void)
 {
@@ -475,7 +505,8 @@ void init_rtc(void)
         PWR->CR &= ~PWR_CR_DBP;
     }
 
-    //rtc_set_second_callback(rtc_on_second);
+    rtc_set_second_callback(rtc_on_second);
+    rtc_set_get_usec_callback(rtc_get_usec);
 }
 
 DWORD get_fattime(void)

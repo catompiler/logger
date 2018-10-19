@@ -37,6 +37,6 @@ extern logger_state_t logger_state(void);
  * Устанавливает долю времени осциллограммы после события.
  * @param time Доля времения осциллограммы после события.
  */
-extern void logger_set_osc_after_event_time(q15_t time);
+extern void logger_set_osc_time_ratio(q15_t time);
 
 #endif /* LOGGER_H_ */

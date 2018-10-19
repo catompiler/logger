@@ -22,6 +22,9 @@
 //! Частота семплирования.
 #define AIN_SAMPLE_FREQ 1600
 
+//! Период семплирования в мкс.
+#define AIN_SAMPLE_PERIOD_US (1000000 / (AIN_SAMPLE_FREQ))
+
 //! Кратность оверсемплинга.
 #define AIN_OVERSAMPLE_RATE ((AIN_OVERSAMPLE_FREQ) / (AIN_SAMPLE_FREQ))
 

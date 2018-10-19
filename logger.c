@@ -63,7 +63,7 @@ typedef struct _Logger {
     QueueHandle_t queue_handle; //!< Идентификатор очереди.
     // Данные.
     logger_state_t state; //!< Состояние.
-    q15_t osc_afev_time; //!< Доля осциллограммы после события.
+    q15_t osc_time_ratio; //!< Доля осциллограммы после события.
     // Конфиг.
     future_t conf_future; //!< Будущее.
     TickType_t conf_last_read; //!< Последнее чтение.
@@ -228,11 +228,11 @@ static void logger_state_event(void)
             if(trig_channel_activated(i)) break;
         }
 
-        logger.event.time = time(NULL);
+        gettimeofday(&logger.event.time, NULL);
         logger.event.trig = i;
 
         time_after = osc_time();
-        time_after = iq15_mull(time_after, logger.osc_afev_time);
+        time_after = iq15_mull(time_after, logger.osc_time_ratio);
 
         osc_pause(time_after);
 
@@ -350,7 +350,7 @@ logger_state_t logger_state(void)
 	return logger.state;
 }
 
-void logger_set_osc_after_event_time(q15_t time)
+void logger_set_osc_time_ratio(q15_t time)
 {
-    logger.osc_afev_time = time;
+    logger.osc_time_ratio = time;
 }

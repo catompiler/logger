@@ -14,9 +14,9 @@
 
 //! Структура события.
 typedef struct _Event {
-    time_t time; //!< Время события.
+    struct timeval time; //!< Время события.
+    struct timeval end_time; //!< Время конца осциллограммы.
     size_t trig; //!< Номер триггера.
-    //
 } event_t;
 
 

@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include <sys/time.h>
 
 
 //! Количество осциллограмм.
@@ -85,6 +86,44 @@ extern size_t osc_used_channels(void);
 extern iq15_t osc_time(void);
 
 /**
+ * Получает коэффициент деления частоты дискретизации.
+ * @return Коэффициент деления частоты дискретизации.
+ */
+extern size_t osc_rate(void);
+
+/**
+ * Получает число семплов в осциллограмме.
+ * @return Число семплов.
+ */
+extern size_t osc_samples(void);
+
+/**
+ * Получает текущий индекс данных осциллограммы.
+ * @return Текущий индекс.
+ */
+extern size_t osc_index(void);
+
+/**
+ * Получает следующий индекс данных осциллограммы.
+ * @param index Текущий индекс.
+ * @return Следующий индекс.
+ */
+extern size_t osc_next_index(size_t index);
+
+/**
+ * Получает индекс семпла по номеру.
+ * @param sample Номер семпла.
+ * @return Индекс.
+ */
+extern size_t osc_sample_index(size_t sample);
+
+/**
+ * Получает сдвиг осциллограммы по частоте АЦП.
+ * @return Сдвиг в семплах частоты АЦП.
+ */
+extern size_t osc_skew(void);
+
+/**
  * Делает паузу записи осциллограммы после
  * количества семплов, эквивалентное заданному времени.
  * @param time Время.
@@ -101,6 +140,18 @@ extern bool osc_paused(void);
  * Продолжает запись осциллограмм.
  */
 extern void osc_resume(void);
+
+/**
+ * Получает количество семплов после паузы осциллограммы.
+ * @return Количество семплов после паузы осциллограммы.
+ */
+extern size_t osc_paused_samples(void);
+
+/**
+ * Получает время останова записи осциллограммы.
+ * @param tv Время останов записи осциллограммы.
+ */
+extern void osc_paused_time(struct timeval* tv);
 
 /**
  * Устанавливает разрешение записи осциллограммы канала.
@@ -123,36 +174,6 @@ extern bool osc_channel_enabled(size_t n);
  * @return Код ошибки.
  */
 extern err_t osc_channel_reset(size_t n);
-
-/**
- * Получает число семплов в канале.
- * @param n Номер канала.
- * @return Число семплов.
- */
-extern size_t osc_channel_samples(size_t n);
-
-/**
- * Получает текущий индекс данных канала.
- * @param n Номер канала.
- * @return Текущий индекс данных канала.
- */
-extern size_t osc_channel_index(size_t n);
-
-/**
- * Получает следующий индекс данных канала.
- * @param n Номер канала.
- * @param index Текущий индекс.
- * @return Следующий индекс.
- */
-extern size_t osc_channel_next_index(size_t n, size_t index);
-
-/**
- * Получает индекс семпла по номеру.
- * @param n Номер канала.
- * @param sample Номер семпла.
- * @return Индекс.
- */
-extern size_t osc_channel_sample_index(size_t n, size_t sample);
 
 /**
  * Получает источник канала.
@@ -183,20 +204,6 @@ extern osc_src_type_t osc_channel_src_type(size_t n);
 extern size_t osc_channel_src_channel(size_t n);
 
 /**
- * Получает коэффициент деления частоты канала.
- * @param n Номер канала.
- * @return Коэффициент деления частоты канала.
- */
-extern size_t osc_channel_rate(size_t n);
-
-/**
- * Получает разницу хода канала осциллограммы в семплах.
- * @param n Номер канала.
- * @return Разница хода канала.
- */
-extern size_t osc_channel_skew(size_t n);
-
-/**
  * Получает данные канала.
  * @param n Номер канала.
  * @param index Индекс данных.
@@ -217,16 +224,16 @@ extern osc_value_t osc_channel_value(size_t n, size_t index);
  * @param type Тип значения.
  * @param src_type Тип - мгновенное или действующее.
  * @param src_channel Номер канала источника данных.
- * @param rate  Делитель частоты дискретизации.
  * @return Код ошибки.
  */
-extern err_t osc_channel_init(size_t n, osc_src_t src, osc_type_t type, osc_src_type_t src_type, size_t src_channel, size_t rate);
+extern err_t osc_channel_init(size_t n, osc_src_t src, osc_type_t type, osc_src_type_t src_type, size_t src_channel);
 
 /**
  * Распределяет между проинициализированными
  * каналами доступную память под осциллограммы.
+ * @param rate  Делитель частоты дискретизации.
  * @return Код ошибки.
  */
-extern err_t osc_init_channels(void);
+extern err_t osc_init_channels(size_t rate);
 
 #endif /* OSC_H_ */

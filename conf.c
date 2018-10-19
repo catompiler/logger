@@ -158,12 +158,12 @@ static err_t conf_ini_read_logger(ini_t* ini, FIL* f)
 
     snprintf(log_sect, CONF_INI_SECT_BUF_LEN, "log");
 
-    time = ini_valuef(ini, log_sect, "osc_rate", IQ15(0.5));
+    time = ini_valuef(ini, log_sect, "osc_ratio", IQ15(0.5));
     if(f_error(f)) return E_IO_ERROR;
 
     time = iq15_sat(time);
 
-    logger_set_osc_after_event_time(time);
+    logger_set_osc_time_ratio(time);
 
     return E_NO_ERROR;
 }
@@ -289,17 +289,17 @@ static err_t conf_ini_read_oscs(ini_t* ini, FIL* f)
         src_channel = ini_valuei(ini, osc_sect, "src_channel", 0);
         if(f_error(f)) return E_IO_ERROR;
 
-        rate = ini_valuei(ini, osc_sect, "rate", 0);
-        if(f_error(f)) return E_IO_ERROR;
-
         enabled = ini_valuei(ini, osc_sect, "enabled", 0);
         if(f_error(f)) return E_IO_ERROR;
 
-        osc_channel_init(i, src, type, src_type, src_channel, rate);
+        osc_channel_init(i, src, type, src_type, src_channel);
         osc_channel_set_enabled(i, enabled);
     }
 
-    return osc_init_channels();
+    rate = ini_valuei(ini, "osc", "rate", 1);
+    if(f_error(f)) return E_IO_ERROR;
+
+    return osc_init_channels(rate);
 }
 
 static err_t conf_ini_read_trigs(ini_t* ini, FIL* f)

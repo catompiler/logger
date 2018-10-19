@@ -16,6 +16,8 @@
 #define EVENT_OSC_WRITE_SCALE 1
 
 
+//! Максимальное число микросекунд для записи.
+#define EVENT_USEC_MAX 999999
 
 
 //! Размер буфера записи.
@@ -146,91 +148,12 @@ static err_t event_write_oscs_ch_scales(FIL* f)
 }
 #endif
 
-static err_t event_write_oscs_ch_samples(FIL* f)
-{
-    size_t i;
-    size_t used_count = osc_used_channels();
-
-    size_t rate = 0;
-
-    f_puts("Samples", f);
-    if(f_error(f)) return E_IO_ERROR;
-
-    for(i = 0; i < used_count; i ++){
-
-        rate = osc_channel_samples(i);
-
-        f_puts(evdelim, f);
-        if(f_error(f)) return E_IO_ERROR;
-
-        f_printf(f, "%u", (unsigned int)rate);
-        if(f_error(f)) return E_IO_ERROR;
-    }
-    f_puts("\n", f);
-    if(f_error(f)) return E_IO_ERROR;
-
-    return E_NO_ERROR;
-}
-
-static err_t event_write_oscs_ch_rates(FIL* f)
-{
-    size_t i;
-    size_t used_count = osc_used_channels();
-
-    size_t rate = 0;
-
-    f_puts("Rate", f);
-    if(f_error(f)) return E_IO_ERROR;
-
-    for(i = 0; i < used_count; i ++){
-
-        rate = osc_channel_rate(i);
-
-        f_puts(evdelim, f);
-        if(f_error(f)) return E_IO_ERROR;
-
-        f_printf(f, "%u", (unsigned int)rate);
-        if(f_error(f)) return E_IO_ERROR;
-    }
-    f_puts("\n", f);
-    if(f_error(f)) return E_IO_ERROR;
-
-    return E_NO_ERROR;
-}
-
-static err_t event_write_oscs_ch_skews(FIL* f)
-{
-    size_t i;
-    size_t used_count = osc_used_channels();
-
-    size_t skew = 0;
-
-    f_puts("Skew", f);
-    if(f_error(f)) return E_IO_ERROR;
-
-    for(i = 0; i < used_count; i ++){
-
-        skew = osc_channel_skew(i);
-
-        f_puts(evdelim, f);
-        if(f_error(f)) return E_IO_ERROR;
-
-        f_printf(f, "%u", (unsigned int)skew);
-        if(f_error(f)) return E_IO_ERROR;
-    }
-    f_puts("\n", f);
-    if(f_error(f)) return E_IO_ERROR;
-
-    return E_NO_ERROR;
-}
-
 static err_t event_write_oscs_chs_data(FIL* f, size_t index)
 {
     size_t i;
     size_t used_count = osc_used_channels();
 
-    size_t ch_rate;
-    size_t ch_index;
+    size_t sample_index = 0;
 
     osc_value_t data;
 #if EVENT_OSC_VALUE_ABSOLUTE == 1
@@ -241,28 +164,17 @@ static err_t event_write_oscs_chs_data(FIL* f, size_t index)
     f_puts("Data", f);
     if(f_error(f)) return E_IO_ERROR;
 
+    // Для отладки продолжение вывода строк данных.
+    if(index >= osc_samples()) return E_NO_ERROR;
+
+    sample_index = osc_sample_index(index);
+
     for(i = 0; i < used_count; i ++){
 
         f_puts(evdelim, f);
         if(f_error(f)) return E_IO_ERROR;
 
-        ch_rate = osc_channel_rate(i);
-
-        if(ch_rate != 0){
-            // Пропуск несуществующих значений.
-            if((index % ch_rate) != 0) continue;
-
-            ch_index = index / ch_rate;
-        }else{
-            ch_index = index;
-        }
-
-        // Пропуск если индекс больше количества.
-        if(ch_index >= osc_channel_samples(i)) continue;
-
-        ch_index = osc_channel_sample_index(i, ch_index);
-
-        data = osc_channel_value(i, ch_index);
+        data = osc_channel_value(i, sample_index);
 
         if(osc_channel_src(i) == OSC_AIN){
 
@@ -293,24 +205,8 @@ static err_t event_write_oscs_chs_datas(FIL* f)
     err_t err = E_NO_ERROR;
 
     size_t i;
-    size_t used_count = osc_used_channels();
 
-    size_t max_samples = 0;
-    size_t samples = 0;
-    size_t ch_samples = 0;
-    size_t ch_rate = 0;
-
-    // Поиск канала с максимальным числом семплов.
-    for(i = 0; i < used_count; i ++){
-        ch_samples = osc_channel_samples(i);
-        ch_rate = osc_channel_rate(i);
-
-        samples = ch_samples * ch_rate;
-
-        if(samples > max_samples){
-            max_samples = samples;
-        }
-    }
+    size_t max_samples = osc_samples();
 
     for(i = 0; i < max_samples; i ++){
         err = event_write_oscs_chs_data(f, i);
@@ -344,18 +240,6 @@ static err_t event_write_oscs_impl(FIL* f)
     if(err != E_NO_ERROR) return err;
 #endif
 
-    // Записать число семплов каналов.
-    err = event_write_oscs_ch_samples(f);
-    if(err != E_NO_ERROR) return err;
-
-    // Записать делителей частоты каналов.
-    err = event_write_oscs_ch_rates(f);
-    if(err != E_NO_ERROR) return err;
-
-    // Записать разницу хода каналов.
-    err = event_write_oscs_ch_skews(f);
-    if(err != E_NO_ERROR) return err;
-
     // Записать разницу хода каналов.
     err = event_write_oscs_chs_datas(f);
     if(err != E_NO_ERROR) return err;
@@ -371,8 +255,11 @@ static err_t event_write_impl(FIL* f, struct tm* ev_tm, event_t* event)
                 ev_tm->tm_mday, ev_tm->tm_mon, ev_tm->tm_year + 1900);
     if(f_error(f)) return E_IO_ERROR;
 
-    f_printf(f, "Time%s%02d:%02d:%02d\n", evdelim,
-                ev_tm->tm_hour, ev_tm->tm_min, ev_tm->tm_sec);
+    int usec = event->time.tv_usec;
+    if(usec > EVENT_USEC_MAX) usec = EVENT_USEC_MAX; // clamp to MsMsMsUsUsUs.
+
+    f_printf(f, "Time%s%02d:%02d:%02d.%06d\n", evdelim,
+                ev_tm->tm_hour, ev_tm->tm_min, ev_tm->tm_sec, usec);
     if(f_error(f)) return E_IO_ERROR;
 
     const char* trig_name = trig_channel_name(event->trig);
@@ -384,6 +271,31 @@ static err_t event_write_impl(FIL* f, struct tm* ev_tm, event_t* event)
     if(f_error(f)) return E_IO_ERROR;
 
     f_printf(f, "Freq%s%u\n", evdelim, AIN_SAMPLE_FREQ);
+    if(f_error(f)) return E_IO_ERROR;
+
+    f_printf(f, "Rate%s%u\n", evdelim, osc_rate());
+    if(f_error(f)) return E_IO_ERROR;
+
+    f_printf(f, "Skew%s%u\n", evdelim, osc_skew());
+    if(f_error(f)) return E_IO_ERROR;
+
+    f_printf(f, "Samples%s%u\n", evdelim, osc_samples());
+    if(f_error(f)) return E_IO_ERROR;
+
+    // Время останова записи осциллограммы.
+    struct timeval end_time;
+    osc_paused_time(&end_time);
+    // Преобразовать из UNIX time.
+    struct tm* end_tm = localtime(&end_time.tv_sec);
+    // clamp to MsMsMsUsUsUs.
+    usec = end_time.tv_usec;
+    if(usec > EVENT_USEC_MAX) usec = EVENT_USEC_MAX;
+
+    f_printf(f, "End time%s%02d:%02d:%02d.%06d\n", evdelim,
+                end_tm->tm_hour, end_tm->tm_min, end_tm->tm_sec, usec);
+    if(f_error(f)) return E_IO_ERROR;
+
+    f_printf(f, "End samples%s%u\n", evdelim, osc_paused_samples());
     if(f_error(f)) return E_IO_ERROR;
 
     err = event_write_oscs_impl(f);
@@ -399,7 +311,7 @@ err_t event_write(event_t* event)
     err_t err = E_NO_ERROR;
     FIL f;
     FRESULT fr = FR_OK;
-    struct tm* ev_tm = localtime(&event->time);
+    struct tm* ev_tm = localtime(&event->time.tv_sec);
 
     if(ev_tm == NULL) return E_INVALID_VALUE;
 
