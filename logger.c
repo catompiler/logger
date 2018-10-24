@@ -15,6 +15,12 @@
 #include <stdio.h>
 #include <time.h>
 
+//! Размер буфера имени станции.
+#define LOGGER_STATION_NAME_BUF_SIZE (LOGGER_STATION_NAME_MAX + 1)
+
+//! Размер буфера идентификатора устройства.
+#define LOGGER_DEV_ID_BUF_SIZE (LOGGER_DEV_ID_MAX + 1)
+
 
 //! Задержка между попытками чтения конфигурации.
 #define LOGGER_CONFIG_DELAY (pdMS_TO_TICKS(1000))
@@ -62,6 +68,8 @@ typedef struct _Logger {
     StaticQueue_t queue_buffer; //!< Буфер очереди.
     QueueHandle_t queue_handle; //!< Идентификатор очереди.
     // Данные.
+    char station_name[LOGGER_STATION_NAME_BUF_SIZE]; //!< Имя станции.
+    char dev_id[LOGGER_DEV_ID_BUF_SIZE]; //!< Идентификатор устройства.
     logger_state_t state; //!< Состояние.
     q15_t osc_time_ratio; //!< Доля осциллограммы после события.
     // Конфиг.
@@ -353,4 +361,44 @@ logger_state_t logger_state(void)
 void logger_set_osc_time_ratio(q15_t time)
 {
     logger.osc_time_ratio = time;
+}
+
+err_t logger_set_station_name(const char* name)
+{
+    if(name == NULL) return E_NULL_POINTER;
+
+    size_t len = strlen(name);
+
+    if(len >= LOGGER_STATION_NAME_MAX) len = LOGGER_STATION_NAME_MAX;
+
+    memcpy(logger.station_name, name, len);
+
+    logger.station_name[len] = '\0';
+
+    return E_NO_ERROR;
+}
+
+const char* logger_station_name(void)
+{
+    return logger.station_name;
+}
+
+err_t logger_set_dev_id(const char* dev_id)
+{
+    if(dev_id == NULL) return E_NULL_POINTER;
+
+    size_t len = strlen(dev_id);
+
+    if(len >= LOGGER_DEV_ID_MAX) len = LOGGER_DEV_ID_MAX;
+
+    memcpy(logger.dev_id, dev_id, len);
+
+    logger.dev_id[len] = '\0';
+
+    return E_NO_ERROR;
+}
+
+const char* logger_dev_id(void)
+{
+    return logger.dev_id;
 }

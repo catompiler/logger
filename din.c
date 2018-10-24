@@ -78,13 +78,17 @@ err_t din_channel_setup(size_t n, din_type_t type, q15_t time, const char* name)
 	channel->type = type;
 	channel->time = time;
 
-    size_t len = strlen(name);
+	if(name){
+        size_t len = strlen(name);
 
-    if(len >= DIN_NAME_LEN) len = DIN_NAME_LEN;
+        if(len >= DIN_NAME_LEN) len = DIN_NAME_LEN;
 
-    memcpy(channel->name, name, len);
+        memcpy(channel->name, name, len);
 
-    channel->name[len] = '\0';
+        channel->name[len] = '\0';
+	}else{
+	    channel->name[0] = '\0';
+	}
 
 	return E_NO_ERROR;
 }

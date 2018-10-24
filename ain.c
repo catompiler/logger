@@ -229,17 +229,21 @@ iq15_t ain_channel_real_k(size_t n)
 err_t ain_channel_set_name(size_t n, const char* name)
 {
     if(n >= AIN_CHANNELS_COUNT) return E_OUT_OF_RANGE;
-    if(name == NULL) return E_NULL_POINTER;
+    //if(name == NULL) return E_NULL_POINTER;
 
     ain_channel_t* channel = &ain.channels[n];
 
-    size_t len = strlen(name);
+    if(name){
+        size_t len = strlen(name);
 
-    if(len >= AIN_NAME_LEN) len = AIN_NAME_LEN;
+        if(len >= AIN_NAME_LEN) len = AIN_NAME_LEN;
 
-    memcpy(channel->name, name, len);
+        memcpy(channel->name, name, len);
 
-    channel->name[len] = '\0';
+        channel->name[len] = '\0';
+    }else{
+        channel->name[0] = '\0';
+    }
 
     return E_NO_ERROR;
 }
@@ -256,17 +260,21 @@ const char* ain_channel_name(size_t n)
 err_t ain_channel_set_unit(size_t n, const char* unit)
 {
     if(n >= AIN_CHANNELS_COUNT) return E_OUT_OF_RANGE;
-    if(unit == NULL) return E_NULL_POINTER;
+    //if(unit == NULL) return E_NULL_POINTER;
 
     ain_channel_t* channel = &ain.channels[n];
 
-    size_t len = strlen(unit);
+    if(unit){
+        size_t len = strlen(unit);
 
-    if(len >= AIN_UNIT_LEN) len = AIN_UNIT_LEN;
+        if(len >= AIN_UNIT_LEN) len = AIN_UNIT_LEN;
 
-    memcpy(channel->unit, unit, len);
+        memcpy(channel->unit, unit, len);
 
-    channel->unit[len] = '\0';
+        channel->unit[len] = '\0';
+    }else{
+        channel->unit[0] = '\0';
+    }
 
     return E_NO_ERROR;
 }

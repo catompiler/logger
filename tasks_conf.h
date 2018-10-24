@@ -21,6 +21,6 @@
 
 // Storage.
 #define STORAGE_PRIORITY 4
-#define STORAGE_STACK_SIZE (configMINIMAL_STACK_SIZE * 4)
+#define STORAGE_STACK_SIZE (configMINIMAL_STACK_SIZE * 5)
 
 #endif /* TASKS_CONF_H_ */

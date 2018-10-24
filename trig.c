@@ -200,6 +200,8 @@ err_t trig_channel_init(size_t n, trig_init_t* init)
         memcpy(channel->name, init->name, len);
 
         channel->name[len] = '\0';
+	}else{
+	    channel->name[0] = '\0';
 	}
 
 	return E_NO_ERROR;

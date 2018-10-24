@@ -66,7 +66,7 @@
 // Уведомления потоков.
 #define configUSE_TASK_NOTIFICATIONS                0
 // Мютексы.
-#define configUSE_MUTEXES                           0
+#define configUSE_MUTEXES                           1
 // Рекурсивные мютексы.
 #define configUSE_RECURSIVE_MUTEXES                 0
 // Счётные семафоры.

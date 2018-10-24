@@ -514,6 +514,8 @@ DWORD get_fattime(void)
     time_t t = time(NULL);
     struct tm* lt = localtime(&t);
 
+    if(lt == NULL) return 0;
+
     DWORD ft = 0;
 
     if(lt->tm_year < 80){

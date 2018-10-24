@@ -80,6 +80,14 @@ extern void osc_reset(void);
 extern size_t osc_used_channels(void);
 
 /**
+ * Получает индекс используемого канала с заданным номером.
+ * Номер должен быть в пределах числа используемых каналов.
+ * @param n Номер используемого канала.
+ * @return Индекс используемого канала.
+ */
+extern size_t osc_used_index(size_t n);
+
+/**
  * Получает время записи осциллограммы.
  * @return Время записи осциллограммы.
  */
@@ -241,5 +249,28 @@ extern err_t osc_channel_init(size_t n, osc_src_t src, osc_type_t type, osc_src_
  * @return Код ошибки.
  */
 extern err_t osc_init_channels(size_t rate);
+
+/**
+ * Получает имя канала источника канала осциллограммы.
+ * Может возвращать NULL.
+ * @param n Номер канала.
+ * @return Имя канала.
+ */
+extern const char* osc_channel_name(size_t n);
+
+/**
+ * Получает единицу измерения источника канала осциллограммы.
+ * Может возвращать NULL.
+ * @param n Номер канала.
+ * @return Единица измерения.
+ */
+extern const char* osc_channel_unit(size_t n);
+
+/**
+ * Получает коэффициент преобразования в реальную величину источника канала осциллограммы.
+ * @param n Номер канала.
+ * @return Коэффициент преобразования.
+ */
+extern iq15_t osc_channel_scale(size_t n);
 
 #endif /* OSC_H_ */

@@ -153,6 +153,7 @@ static void conf_ini_store_str(char* dst, size_t size, const char* src)
 static err_t conf_ini_read_logger(ini_t* ini, FIL* f)
 {
     iq15_t time = 0;
+    const char* str = NULL;
 
     char log_sect[CONF_INI_SECT_BUF_LEN];
 
@@ -162,8 +163,15 @@ static err_t conf_ini_read_logger(ini_t* ini, FIL* f)
     if(f_error(f)) return E_IO_ERROR;
 
     time = iq15_sat(time);
-
     logger_set_osc_time_ratio(time);
+
+    str = ini_value(ini, log_sect, "station", NULL);
+    if(f_error(f)) return E_IO_ERROR;
+    logger_set_station_name(str);
+
+    str = ini_value(ini, log_sect, "device", NULL);
+    if(f_error(f)) return E_IO_ERROR;
+    logger_set_dev_id(str);
 
     return E_NO_ERROR;
 }

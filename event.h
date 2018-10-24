@@ -15,11 +15,14 @@
 //! Структура события.
 typedef struct _Event {
     struct timeval time; //!< Время события.
-    struct timeval end_time; //!< Время конца осциллограммы.
     size_t trig; //!< Номер триггера.
 } event_t;
 
-
+/**
+ * Записывает событие в файл.
+ * @param event Событие.
+ * @return Код ошибки.
+ */
 extern err_t event_write(event_t* event);
 
 

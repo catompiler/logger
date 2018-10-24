@@ -112,11 +112,18 @@ ALWAYS_INLINE static osc_channel_t* osc_channel(size_t n)
     return &osc.channels[n];
 }
 
+//! Получает используемый канал по номеру.
+/*ALWAYS_INLINE static osc_channel_t* osc_used_channel(size_t n)
+{
+    return osc_channel(osc.used_map[n]);
+}*/
+
 void osc_init(void)
 {
     memset(&osc, 0x0, sizeof(osc_t));
 }
 
+//! Получает следующий индекс семплов.
 static size_t osc_index_next(size_t index)
 {
 	size_t next = index + 1;
@@ -126,6 +133,7 @@ static size_t osc_index_next(size_t index)
 	return next;
 }
 
+//! Инкрементирует индекс семплов.
 ALWAYS_INLINE static void osc_index_inc(void)
 {
     osc.index = osc_index_next(osc.index);
@@ -311,6 +319,23 @@ static bool osc_channel_put(osc_channel_t* channel)
     return true;
 }
 
+//! Получает время последнего семпла.
+static void osc_calc_last_sample_time(struct timeval* tv)
+{
+    // Смещение последнего семпла.
+    size_t skew = decim_skew(&osc.decim);
+    // Время между семплами.
+    struct timeval sample_tv = {0, AIN_SAMPLE_PERIOD_US};
+
+    // Получим текущее время.
+    gettimeofday(tv, NULL);
+
+    do {
+        // Вычтем время с последнего семпла.
+        timersub(tv, &sample_tv, tv);
+    } while(skew --);
+}
+
 void osc_append(void)
 {
 	if(!osc.enabled) return;
@@ -321,13 +346,7 @@ void osc_append(void)
 	    if(osc.pause_counter == osc.pause_samples){
 	        // Если время останова нулевое (не зафиксировано).
 	        if(!timerisset(&osc.end_time)){
-	            // Получим текущее время.
-	            gettimeofday(&osc.end_time, NULL);
-	            // Время между семплами.
-	            struct timeval sample_tv;
-	            osc_sample_period(&sample_tv);
-	            // Вычтем время с последнего семпла.
-	            timersub(&osc.end_time, &sample_tv, &osc.end_time);
+	            osc_calc_last_sample_time(&osc.end_time);
 	        }
 	        // Возврат.
 	        return;
@@ -416,6 +435,11 @@ void osc_reset(void)
 size_t osc_used_channels(void)
 {
 	return osc.used_count;
+}
+
+size_t osc_used_index(size_t n)
+{
+    return osc.used_map[n];
 }
 
 iq15_t osc_time(void)
@@ -792,3 +816,35 @@ err_t osc_init_channels(size_t rate)
 
     return E_NO_ERROR;
 }
+
+const char* osc_channel_name(size_t n)
+{
+    osc_src_t src = osc_channel_src(n);
+    size_t src_n = osc_channel_src_channel(n);
+
+    if(src == OSC_AIN) return ain_channel_name(src_n);
+    else if(src == OSC_DIN) return din_name(src_n);
+
+    return NULL;
+}
+
+const char* osc_channel_unit(size_t n)
+{
+    osc_src_t src = osc_channel_src(n);
+    size_t src_n = osc_channel_src_channel(n);
+
+    if(src == OSC_AIN) return ain_channel_unit(src_n);
+
+    return NULL;
+}
+
+iq15_t osc_channel_scale(size_t n)
+{
+    osc_src_t src = osc_channel_src(n);
+    size_t src_n = osc_channel_src_channel(n);
+
+    if(src == OSC_AIN) return ain_channel_real_k(src_n);
+
+    return IQ15I(1);
+}
+
