@@ -11,6 +11,7 @@
 #include "osc.h"
 #include "trig.h"
 #include "storage.h"
+#include "oscs.h"
 #include "utils/utils.h"
 #include <stdio.h>
 #include <time.h>
@@ -156,12 +157,12 @@ static void logger_state_noinit(void)
 	switch(logger.init_state){
 	case LOGGER_INIT_BEGIN:
 	    ain_set_enabled(false);
-	    osc_set_enabled(false);
 	    trig_set_enabled(false);
+        oscs_set_enabled(false);
 
 	    ain_reset();
-	    osc_reset();
 	    trig_reset();
+        oscs_reset();
 
 	    printf("Reading conf ini...");
 
@@ -187,8 +188,8 @@ static void logger_state_noinit(void)
                 logger.conf_last_read = 0;
 
                 ain_set_enabled(true);
-                osc_set_enabled(true);
                 trig_set_enabled(true);
+                oscs_set_enabled(true);
 
                 logger.init_state = LOGGER_INIT_DONE;
             }else{
@@ -239,16 +240,16 @@ static void logger_state_event(void)
         gettimeofday(&logger.event.time, NULL);
         logger.event.trig = i;
 
-        time_after = osc_time();
+        time_after = oscs_time();
         time_after = iq15_mull(time_after, logger.osc_time_ratio);
 
-        osc_pause(time_after);
+        oscs_pause(time_after);
 
         logger.event_state = LOGGER_EVENT_WAIT_OSC;
         break;
 
     case LOGGER_EVENT_WAIT_OSC:
-        if(osc_paused()){
+        if(oscs_paused()){
             logger.event_state = LOGGER_EVENT_BEGIN_WRITE;
         }
         break;
@@ -275,7 +276,7 @@ static void logger_state_event(void)
 
                 printf("success!\r\n");
 
-                osc_resume();
+                oscs_resume();
 
                 logger.event_last_write = 0;
 

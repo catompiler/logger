@@ -29,6 +29,7 @@
 #include "conf.h"
 #include "dio_upd.h"
 #include "storage.h"
+#include "oscs.h"
 #include <time.h>
 #include "utils/critical.h"
 
@@ -946,7 +947,7 @@ static void init_ain(void)
 
 static void init_osc(void)
 {
-    osc_init();
+    oscs_init();
 }
 
 static void init_trig(void)

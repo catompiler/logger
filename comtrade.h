@@ -27,6 +27,9 @@
 //! Максимальное значение данных.
 #define COMTRADE_DAT_MAX (32767)
 
+//! Несуществующее значние.
+#define COMTRADE_UNKNOWN_VALUE 0x8000
+
 //! Значение первичной величины.
 #define COMTRADE_PS_PRIMARY 'p'
 
@@ -59,57 +62,65 @@ typedef struct _Comtrade_Digital_Channel {
     bool y; //!< Нормальное состояние канала.
 } comtrade_digital_channel_t;
 
-//!< Структура описания частоты дискретизации.
+//! Структура описания частоты дискретизации.
 typedef struct _Comtrade_Sample_Rate {
     iq15_t samp; //!< Частота.
     uint32_t endsamp; //!< Номер последнего семпла.
 } comtrade_sample_rate_t;
 
+//! Тип данных осциллограммы комтрейд.
+typedef void* comtrade_osc_data_t;
 
 /**
  * Каллбэк получения описания аналогового канала.
+ * @param osc_data Данные осциллограммы.
  * @param index Номер канала.
  * @param channel Описание канала.
  */
-typedef void (*comtrade_get_analog_channel_t)(size_t index, comtrade_analog_channel_t* channel);
+typedef void (*comtrade_get_analog_channel_t)(comtrade_osc_data_t osc_data, size_t index, comtrade_analog_channel_t* channel);
 
 /**
  * Каллбэк получения описания цифрового канала.
+ * @param osc_data Данные осциллограммы.
  * @param index Номер канала.
  * @param channel Описание канала.
  */
-typedef void (*comtrade_get_digital_channel_t)(size_t index, comtrade_digital_channel_t* channel);
+typedef void (*comtrade_get_digital_channel_t)(comtrade_osc_data_t osc_data, size_t index, comtrade_digital_channel_t* channel);
 
 /**
  * Каллбэк получения описания частоты дискретизации.
+ * @param osc_data Данные осциллограммы.
  * @param sample Номер частоты дискретизации.
  * @param rate Описание частота дискретизации.
  */
-typedef void (*comtrade_get_sample_rate_t)(size_t index, comtrade_sample_rate_t* rate);
+typedef void (*comtrade_get_sample_rate_t)(comtrade_osc_data_t osc_data, size_t index, comtrade_sample_rate_t* rate);
 
 
 /**
  * Каллбэк получения отметки времени семпла.
+ * @param osc_data Данные осциллограммы.
  * @param n Номер семпла.
  * @return Отметка времени.
  */
-//typedef uint32_t (*comtrade_get_sample_timestamp_t)(size_t n);
+//typedef uint32_t (*comtrade_get_sample_timestamp_t)(comtrade_osc_data_t osc_data, size_t n);
 
 /**
  * Каллбэк получения значения аналогового канала.
+ * @param osc_data Данные осциллограммы.
  * @param index Индекс канала.
  * @param sample Номер семпла.
  * @return Значение канала.
  */
-typedef int16_t (*comtrade_get_analog_channel_value_t)(size_t index, size_t sample);
+typedef int16_t (*comtrade_get_analog_channel_value_t)(comtrade_osc_data_t osc_data, size_t index, size_t sample);
 
 /**
  * Каллбэк получения значения цифрового канала.
+ * @param osc_data Данные осциллограммы.
  * @param index Индекс канала.
  * @param sample Номер семпла.
  * @return Значение канала.
  */
-typedef bool (*comtrade_get_digital_channel_value_t)(size_t index, size_t sample);
+typedef bool (*comtrade_get_digital_channel_value_t)(comtrade_osc_data_t osc_data, size_t index, size_t sample);
 
 
 //!< Структура COMTRADE.
@@ -130,6 +141,7 @@ typedef struct _Comtrade {
     // comtrade_file_type_t file_type; //!< Тип файла - всегда бинарный.
     uint32_t timemult; //!< Множитель отметки времени, мкс.
     // Данные COMTRADE.
+    comtrade_osc_data_t osc_data; //!< Данные осциллограммы.
     //comtrade_get_sample_timestamp_t get_sample_timestamp; //!< Получение отметки времени.
     comtrade_get_analog_channel_value_t get_analog_channel_value; //!< Получение значения аналогового канала.
     comtrade_get_digital_channel_value_t get_digital_channel_value; //!< Получение значения цифрового канала.

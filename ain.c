@@ -11,6 +11,7 @@
 #include "mwin.h"
 #include "hires_timer.h"
 #include "osc.h"
+#include "oscs.h"
 
 
 //! Размер очереди.
@@ -455,7 +456,7 @@ static void ain_process_adc_data(uint16_t* adc_data)
         }
 
         // Записать осциллограмму.
-        osc_append();
+        oscs_append();
     }
 
     /*hires_timer_value(&tv_cur);

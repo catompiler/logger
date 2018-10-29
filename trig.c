@@ -31,8 +31,6 @@ typedef struct _Trig_Channel {
 //! Тип триггеров.
 typedef struct _Trig {
 	trig_channel_t channels[TRIG_COUNT_MAX]; //!< Каналы.
-	//size_t used_map[TRIG_COUNT_MAX]; //!< Индексы используемых каналов.
-	//size_t used_count; //!< Используемые каналы.
 	bool enabled; //!< Разрешение триггеров.
 } trig_t;
 

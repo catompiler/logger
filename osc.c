@@ -1,142 +1,225 @@
 #include "osc.h"
-#include "decim.h"
-#include "avg.h"
-#include "maj.h"
 #include "ain.h"
 #include "din.h"
 #include <string.h>
 
 
-//! Резервные семплы для компенсации ошибок вычислений размера.
-#define OSC_RESERVED_SAMPLES (OSC_COUNT_MAX)
-
-//! Общее число семплов в буфере.
-#define OSC_TOTAL_SAMPLES_MAX (OSC_SAMPLES_MAX + OSC_RESERVED_SAMPLES)
-
-//! Минимальное число семплов для канала (если вычисленный размер оказывается равен нулю).
-#define OSC_SAMPLES_MIN 1
-
-//! Минимальный размер буфера для канала (если вычисленный размер оказывается равен нулю).
-#define OSC_BUF_SIZE_MIN 1
-
-//! Число цифровых сигналов в одном семпле.
-#define OSC_BITS_PER_SAMPLE (sizeof(osc_value_t) * 8)
-
-// Порог значения цифрового входа.
-//#define OSC_DIN_THRESHOLD Q15(0.5)
-
-
-//! Структура канала осциллограммы.
-typedef struct _Osc_Channel {
-    osc_src_t src; //!< Источник данных.
-    osc_type_t type; //!< Тип значения.
-    osc_src_type_t src_type; //!< Тип - мгновенное или действующее.
-    size_t src_channel; //!< Номер канала источника данных.
-    union {
-        avg_t avg; //!< Усреднение.
-        maj_t maj; //!< Мажоритар.
-    };
-    osc_value_t* data; //!< Данные.
-    size_t size; //!< Размер данных в единицах буфера.
-    bool enabled; //!< Разрешение канала.
-} osc_channel_t;
-
-//! Пул данных осциллограмм.
-typedef struct _Osc_Pool {
-    osc_value_t data[OSC_TOTAL_SAMPLES_MAX]; //!< Буфер данных пула.
-    size_t index; //!< Индекс свободного элемента.
-} osc_pool_t;
-
-//! Структура осциллограмм.
-typedef struct _Osc {
-    osc_channel_t channels[OSC_COUNT_MAX]; //!< Каналы осциллограммы.
-    size_t used_map[OSC_COUNT_MAX]; //!< Индексы используемых каналов.
-    size_t used_count; //!< Количество используемых каналов.
-    bool enabled; //!< Разрешение каналов.
-    decim_t decim; //!< Дециматор.
-    size_t samples; //!< Количество семплов.
-    size_t index; //!< Текущий индекс.
-    //size_t rate; //!< Коэффициент деления частоты дискретизации.
-    iq15_t time; //!< Время осциллограммы.
-    bool pause_enabled; //!< Разрешение паузы.
-    size_t pause_counter; //!< Счётчик семплов до паузы.
-    size_t pause_samples; //!< Число семплов до паузы.
-    struct timeval end_time; //!< Время последнего семпла осциллограммы.
-    osc_pool_t pool; //!< Пул данных.
-} osc_t;
-
-//! Осциллограммы.
-static osc_t osc;
-
 /*
  * Пул.
  */
-/*
+
 //! Инициализирует пул.
-static void osc_pool_init(void)
+static void osc_pool_init(osc_pool_t* pool, osc_value_t* data, size_t size)
 {
-    osc_pool_t* pool = &osc.pool;
-
-    pool->index = 0;
-    memset(pool->data, 0x0, OSC_SAMPLES_MAX * sizeof(osc_value_t));
-}*/
-
-//! Сбрасывает пул.
-static void osc_pool_reset(void)
-{
-    osc_pool_t* pool = &osc.pool;
-
+    pool->data = data;
+    pool->size = size;
     pool->index = 0;
 }
-
-//! Выделяет данные из пула.
-static osc_value_t* osc_pool_alloc(size_t count)
+/*
+//! Получает размер данных пула.
+ALWAYS_INLINE static size_t osc_pool_size(osc_pool_t* pool)
 {
-    osc_pool_t* pool = &osc.pool;
+    return pool->size;
+}
 
-    if((OSC_TOTAL_SAMPLES_MAX - pool->index) < count) return NULL;
+//! Сбрасывает пул.
+ALWAYS_INLINE static void osc_pool_reset(osc_pool_t* pool)
+{
+    pool->index = 0;
+}
+*/
+//! Выделяет данные из пула.
+static size_t osc_pool_alloc_index(osc_pool_t* pool, size_t count)
+{
+    if((pool->size - pool->index) < count) return OSC_INDEX_INVALID;
 
-    osc_value_t* data = &pool->data[pool->index];
+    size_t index = pool->index;
 
     pool->index += count;
 
-    return data;
+    return index;
 }
 
+//! Выделяет данные из пула.
+static osc_value_t* osc_pool_alloc(osc_pool_t* pool, size_t count)
+{
+    size_t index = osc_pool_alloc_index(pool, count);
+
+    if(index == OSC_INDEX_INVALID) return NULL;
+
+    return &pool->data[index];
+}
+
+/*
+ * Общее.
+ */
+//! Получает следующий индекс семплов.
+static size_t osc_sample_index_next(osc_t* osc, size_t index)
+{
+    size_t next = index + 1;
+
+    if(next >= osc->samples) next = 0;
+
+    return next;
+}
+
+/*
+ * Буфера.
+ */
+//! Получает буфер по номеру.
+ALWAYS_INLINE static osc_buffer_t* osc_buffer(osc_t* osc, size_t n)
+{
+    return &osc->buffers[n];
+}
+
+//! Получает буфер записи.
+ALWAYS_INLINE static osc_buffer_t* osc_put_buffer(osc_t* osc)
+{
+    return osc_buffer(osc, osc->put_buf_index);
+}
+/*
+//! Получает буфер чтения.
+ALWAYS_INLINE static osc_buffer_t* osc_get_buffer(osc_t* osc)
+{
+    return osc_buffer(osc, osc->get_buf_index);
+}
+*/
+//! Получает следующий индекс буфера.
+static size_t osc_buffer_index_next(osc_t* osc, size_t index)
+{
+    size_t next = index + 1;
+
+    if(next >= osc->buffers_count) next = 0;
+
+    return next;
+}
+
+//! Инициализирует буфер.
+static void osc_buffer_init(osc_buffer_t* buffer, osc_value_t* data, size_t size)
+{
+    buffer->data = data;
+    buffer->size = size;
+    buffer->index = 0;
+    buffer->count = 0;
+    buffer->end_time.tv_sec = 0;
+    buffer->end_time.tv_usec = 0;
+    buffer->paused = false;
+}
+
+//! Сбрасывает буфер.
+static void osc_buffer_reset(osc_buffer_t* buffer)
+{
+    buffer->index = 0;
+    buffer->count = 0;
+    buffer->end_time.tv_sec = 0;
+    buffer->end_time.tv_usec = 0;
+    buffer->paused = false;
+}
+
+//! Инкрементирует индекс семплов буфера.
+ALWAYS_INLINE static void osc_sample_index_inc(osc_t* osc, osc_buffer_t* buffer)
+{
+    buffer->index = osc_sample_index_next(osc, buffer->index);
+}
+
+//! Инкрементирует число семплов в буфере.
+ALWAYS_INLINE static void osc_buffer_count_inc(osc_t* osc, osc_buffer_t* buffer)
+{
+    size_t inc_count = buffer->count + 1;
+    if(buffer->count < osc->samples) buffer->count = inc_count;
+}
+
+//! Устанавливает индекс следующего буфера чтения.
+ALWAYS_INLINE static void osc_buffers_inc_get_index(osc_t* osc)
+{
+    osc->get_buf_index = osc_next_buffer_index(osc, osc->get_buf_index);
+}
+
+//! Устанавливает индекс следующего буфера записи.
+ALWAYS_INLINE static void osc_buffers_inc_put_index(osc_t* osc)
+{
+    osc->put_buf_index = osc_next_buffer_index(osc, osc->put_buf_index);
+}
+
+//! Получает данные канала в буфере.
+ALWAYS_INLINE static osc_value_t* osc_channel_buffer_data(osc_channel_t* channel, osc_buffer_t* buffer)
+{
+    return &buffer->data[channel->offset];
+}
+
+
+//! Инициализирует буферы осциллограмм.
+static err_t osc_init_buffers(osc_t* osc)
+{
+    osc_buffer_t* buffer = NULL;
+    osc_value_t* data = NULL;
+    size_t buf_size = osc->data_size / osc->buffers_count;
+
+    osc_pool_t buf_pool;
+    osc_pool_init(&buf_pool, osc->data, osc->data_size);
+
+    size_t i;
+    for(i = 0; i < osc->buffers_count; i ++){
+        data = osc_pool_alloc(&buf_pool, buf_size);
+        if(data == NULL) return E_OUT_OF_MEMORY;
+
+        buffer = osc_buffer(osc, i);
+        osc_buffer_init(buffer, data, buf_size);
+    }
+
+    osc->buf_samples = buf_size;
+    osc->put_buf_index = 0;
+    osc->get_buf_index = 0;
+
+    return E_NO_ERROR;
+}
 /*
  * Каналы.
  */
 //! Получает канал по номеру.
-ALWAYS_INLINE static osc_channel_t* osc_channel(size_t n)
+ALWAYS_INLINE static osc_channel_t* osc_channel(osc_t* osc, size_t n)
 {
-    return &osc.channels[n];
+    return &osc->channels[n];
 }
 
-//! Получает используемый канал по номеру.
-/*ALWAYS_INLINE static osc_channel_t* osc_used_channel(size_t n)
+err_t osc_init(osc_t* osc, osc_value_t* data, size_t data_size,
+               osc_buffer_t* buffers, size_t buffers_count,
+               osc_channel_t* channels, size_t channels_count)
 {
-    return osc_channel(osc.used_map[n]);
-}*/
+    if(data == NULL) return E_NULL_POINTER;
+    if(data_size == 0) return E_INVALID_VALUE;
+    if(buffers == NULL) return E_NULL_POINTER;
+    if(buffers_count == 0) return E_INVALID_VALUE;
+    if(channels == NULL) return E_NULL_POINTER;
+    if(channels_count == 0) return E_INVALID_VALUE;
 
-void osc_init(void)
-{
-    memset(&osc, 0x0, sizeof(osc_t));
+    err_t err = E_NO_ERROR;
+
+    memset(osc, 0x0, sizeof(osc_t));
+
+    osc->data = data;
+    osc->data_size = data_size;
+    osc->buffers = buffers;
+    osc->buffers_count = buffers_count;
+    osc->channels = channels;
+    osc->channels_count = channels_count;
+
+    osc->buffer_mode = OSC_RING_IN_BUFFER;
+
+    err = osc_init_buffers(osc);
+    if(err != E_NO_ERROR) return err;
+
+    return E_NO_ERROR;
 }
 
-//! Получает следующий индекс семплов.
-static size_t osc_index_next(size_t index)
+osc_buffer_mode_t osc_buffer_mode(osc_t* osc)
 {
-	size_t next = index + 1;
-
-	if(next >= osc.samples) next = 0;
-
-	return next;
+    return osc->buffer_mode;
 }
 
-//! Инкрементирует индекс семплов.
-ALWAYS_INLINE static void osc_index_inc(void)
+void osc_set_buffer_mode(osc_t* osc, osc_buffer_mode_t mode)
 {
-    osc.index = osc_index_next(osc.index);
+    osc->buffer_mode = mode;
 }
 
 /**
@@ -144,9 +227,11 @@ ALWAYS_INLINE static void osc_index_inc(void)
  * @param channel Канал.
  * @param value Значение.
  */
-static void osc_channel_put_value_val(osc_channel_t* channel, osc_value_t value)
+static void osc_channel_put_value_val(osc_channel_t* channel, osc_buffer_t* buffer, osc_value_t value)
 {
-	channel->data[osc.index] = value;
+    osc_value_t* data = osc_channel_buffer_data(channel, buffer);
+
+	data[buffer->index] = value;
 }
 
 /**
@@ -154,15 +239,17 @@ static void osc_channel_put_value_val(osc_channel_t* channel, osc_value_t value)
  * @param channel Канал.
  * @param value Битовое значение.
  */
-static void osc_channel_put_value_bit(osc_channel_t* channel, osc_value_t value)
+static void osc_channel_put_value_bit(osc_channel_t* channel, osc_buffer_t* buffer, osc_value_t value)
 {
-	size_t pos = osc.index / OSC_BITS_PER_SAMPLE;
-	size_t bit = osc.index % OSC_BITS_PER_SAMPLE;
+	size_t pos = buffer->index / OSC_BITS_PER_SAMPLE;
+	size_t bit = buffer->index % OSC_BITS_PER_SAMPLE;
+
+	osc_value_t* data = osc_channel_buffer_data(channel, buffer);
 
 	if(value){
-		channel->data[pos] |= (1 << bit);
+		data[pos] |= (1 << bit);
 	}else{
-		channel->data[pos] &= ~(1 << bit);
+		data[pos] &= ~(1 << bit);
 	}
 }
 
@@ -171,12 +258,12 @@ static void osc_channel_put_value_bit(osc_channel_t* channel, osc_value_t value)
  * @param channel Канал.
  * @param value Значение.
  */
-static void osc_channel_put_value(osc_channel_t* channel, osc_value_t value)
+static void osc_channel_put_value(osc_channel_t* channel, osc_buffer_t* buffer, osc_value_t value)
 {
 	if(channel->type == OSC_VAL){
-        osc_channel_put_value_val(channel, value);
+        osc_channel_put_value_val(channel, buffer, value);
 	}else{// OSC_BIT
-        osc_channel_put_value_bit(channel, value);
+        osc_channel_put_value_bit(channel, buffer, value);
 	}
 }
 
@@ -186,11 +273,13 @@ static void osc_channel_put_value(osc_channel_t* channel, osc_value_t value)
  * @param index Индекс.
  * @return Значение.
  */
-static osc_value_t osc_channel_get_value_val(osc_channel_t* channel, size_t index)
+static osc_value_t osc_channel_get_value_val(osc_t* osc, osc_channel_t* channel, osc_buffer_t* buffer, size_t index)
 {
-	if(index >= osc.samples) return 0;
+	if(index >= osc->samples) return 0;
 
-	return channel->data[index];
+	osc_value_t* data = osc_channel_buffer_data(channel, buffer);
+
+	return data[index];
 }
 
 /**
@@ -199,14 +288,16 @@ static osc_value_t osc_channel_get_value_val(osc_channel_t* channel, size_t inde
  * @param index Индекс.
  * @return Значение.
  */
-static osc_value_t osc_channel_get_value_bit(osc_channel_t* channel, size_t index)
+static osc_value_t osc_channel_get_value_bit(osc_t* osc, osc_channel_t* channel, osc_buffer_t* buffer,  size_t index)
 {
+    if(index >= osc->samples) return 0;
+
 	size_t pos = index / OSC_BITS_PER_SAMPLE;
 	size_t bit = index % OSC_BITS_PER_SAMPLE;
 
-	if(index >= osc.samples) return 0;
+	osc_value_t* data = osc_channel_buffer_data(channel, buffer);
 
-	return (channel->data[pos] & (1 << bit)) ? 1 : 0;
+	return (data[pos] & (1 << bit)) ? 1 : 0;
 }
 
 /**
@@ -215,12 +306,12 @@ static osc_value_t osc_channel_get_value_bit(osc_channel_t* channel, size_t inde
  * @param index Индекс.
  * @return Значение.
  */
-static osc_value_t osc_channel_get_value(osc_channel_t* channel, size_t index)
+static osc_value_t osc_channel_get_value(osc_t* osc, osc_channel_t* channel, osc_buffer_t* buffer, size_t index)
 {
 	if(channel->type == OSC_VAL){
-		return osc_channel_get_value_val(channel, index);
+		return osc_channel_get_value_val(osc, channel, buffer, index);
 	}
-	return osc_channel_get_value_bit(channel, index);
+	return osc_channel_get_value_bit(osc, channel, buffer, index);
 }
 
 /**
@@ -278,8 +369,7 @@ static void osc_channel_append_din(osc_channel_t* channel)
 static bool osc_channel_append(osc_channel_t* channel)
 {
 	if(!channel->enabled) return false;
-	if(channel->size == 0) return false;
-	if(channel->data == NULL) return false;
+	if(channel->offset == OSC_INDEX_INVALID) return false;
 
 	switch(channel->src){
 	case OSC_AIN:
@@ -300,11 +390,10 @@ static bool osc_channel_append(osc_channel_t* channel)
  * @param channel Канал.
  * @return Флаг добавления.
  */
-static bool osc_channel_put(osc_channel_t* channel)
+static bool osc_channel_put(osc_channel_t* channel, osc_buffer_t* buffer)
 {
     if(!channel->enabled) return false;
-    if(channel->size == 0) return false;
-    if(channel->data == NULL) return false;
+    if(channel->offset == OSC_INDEX_INVALID) return false;
 
     osc_value_t value = 0;
 
@@ -314,259 +403,416 @@ static bool osc_channel_put(osc_channel_t* channel)
         value = maj_calc(&channel->maj);
     }
 
-    osc_channel_put_value(channel, value);
+    osc_channel_put_value(channel, buffer, value);
 
     return true;
 }
 
 //! Получает время последнего семпла.
-static void osc_calc_last_sample_time(struct timeval* tv)
+static void osc_calc_last_sample_time(size_t skew, struct timeval* tv)
 {
-    // Смещение последнего семпла.
-    size_t skew = decim_skew(&osc.decim);
+    if(!tv) return;
     // Время между семплами.
     struct timeval sample_tv = {0, AIN_SAMPLE_PERIOD_US};
+    // Время последнего семпла.
+    struct timeval end_time = {0, 0};
 
     // Получим текущее время.
-    gettimeofday(tv, NULL);
+    gettimeofday(&end_time, NULL);
 
-    do {
+    size_t i;
+    for(i = 0; i < skew; i ++) {
         // Вычтем время с последнего семпла.
-        timersub(tv, &sample_tv, tv);
-    } while(skew --);
+        timersub(&end_time, &sample_tv, &end_time);
+    }
+
+    tv->tv_sec = end_time.tv_sec;
+    tv->tv_usec = end_time.tv_usec;
 }
 
-void osc_append(void)
+ALWAYS_INLINE static void osc_pause_mark_put_buffer(osc_t* osc, osc_buffer_t* buffer)
 {
-	if(!osc.enabled) return;
+    // Обозначим паузу.
+    buffer->paused = true;
+}
+
+ALWAYS_INLINE static void osc_pause_calc_sample_time(osc_t* osc, osc_buffer_t* buffer, size_t pause_skew)
+{
+    // Получим время паузы.
+    osc_calc_last_sample_time(decim_skew(&osc->decim) + pause_skew, &buffer->end_time);
+}
+
+static void osc_pause_next_put_buffer(osc_t* osc)
+{
+    // Если необходимо - переключим буфер записи.
+    switch(osc->buffer_mode){
+    default:
+        break;
+    case OSC_BUFFER_IN_RING:
+        break;
+    case OSC_RING_IN_BUFFER:
+        osc_buffers_inc_put_index(osc);
+        break;
+    }
+}
+
+static void osc_pause_put_buffer(osc_t* osc, osc_buffer_t* buffer, size_t pause_skew)
+{
+    // Остановим запись в текущий буфер.
+    osc_pause_mark_put_buffer(osc, buffer);
+    // Вычислим время последнего записанного семпла.
+    osc_pause_calc_sample_time(osc, buffer, pause_skew);
+}
+
+static void osc_inc_put_index(osc_t* osc, osc_buffer_t* buffer)
+{
+    osc_sample_index_inc(osc, buffer);
+    osc_buffer_count_inc(osc, buffer);
+    //gettimeofday(&buffer->end_time, NULL);
+}
+
+static void osc_pause_full_buffer(osc_t* osc)
+{
+    osc_buffer_t* buffer = osc_put_buffer(osc);
+
+    // Запись в буфер остановлена - возврат.
+    if(buffer->paused) return;
+
+    switch(osc->buffer_mode){
+    default:
+        break;
+    case OSC_BUFFER_IN_RING:
+        // Если число записанных семплов в буфер достигло предела.
+        if(buffer->count >= osc->samples){
+            // Остановим запись в буфер.
+            osc_pause_put_buffer(osc, buffer, 1);
+            // Перейдём на следующий буфер.
+            osc_buffers_inc_put_index(osc);
+        }
+        break;
+    case OSC_RING_IN_BUFFER:
+        break;
+    }
+}
+
+void osc_append(osc_t* osc)
+{
+	if(!osc->enabled) return;
+
+	// Буфер.
+	osc_buffer_t* buffer = NULL;
 
 	// Если разрешена пауза.
-	if(osc.pause_enabled){
+	if(osc->pause_enabled){
 	    // Если достигли окончания интервала ожидания.
-	    if(osc.pause_counter == osc.pause_samples){
-	        // Если время останова нулевое (не зафиксировано).
-	        if(!timerisset(&osc.end_time)){
-	            osc_calc_last_sample_time(&osc.end_time);
-	        }
-	        // Возврат.
-	        return;
+	    if(osc->pause_counter == osc->pause_samples){
+	        // Запись в текущий буфер остановлена.
+	        osc->pause_enabled = false;
+
+	        // Получим буфер для останова записи.
+	        buffer = osc_put_buffer(osc);
+	        // Остановим запись в буфер.
+	        osc_pause_put_buffer(osc, buffer, 1);
+	        // Переключимся на следующий буфер, если это требуется.
+	        osc_pause_next_put_buffer(osc);
+	    }else{
+	        osc->pause_counter ++;
 	    }
-	    osc.pause_counter ++;
 	}
 
+	// При необходимости - остановим и переключим заполненный буфер.
+	osc_pause_full_buffer(osc);
+
+    // Текущий буфер вставки.
+    buffer = osc_put_buffer(osc);
+
+    // Если запись в текущий буфер остановлена - возврат.
+    if(buffer->paused) return;
+
 	osc_channel_t* channel = NULL;
-	size_t n = 0;
 	size_t i;
 
 	// Добавим данные в усреднение каналов.
-	for(i = 0; i < osc.used_count; i ++){
-		n = osc.used_map[i];
+	for(i = 0; i < osc->channels_count; i ++){
 
-		channel = osc_channel(n);
+		channel = osc_channel(osc, i);
 
 		osc_channel_append(channel);
 	}
 
 	// Увеличим индекс дециматора.
-	decim_put(&osc.decim, 0);
+	decim_put(&osc->decim, 0);
 
 	// Если пора записывать осциллограмму -
 	// поместим данные в буферы каналов.
-	if(decim_ready(&osc.decim)){
+	if(decim_ready(&osc->decim)){
 	    // Добавим данные в усреднение каналов.
-	    for(i = 0; i < osc.used_count; i ++){
-	        n = osc.used_map[i];
+	    for(i = 0; i < osc->channels_count; i ++){
 
-	        channel = osc_channel(n);
+	        channel = osc_channel(osc, i);
 
 	        // Поместим значение в буфер данных.
-	        osc_channel_put(channel);
+	        osc_channel_put(channel, buffer);
 	    }
 
 	    // Увеличим индекс.
-	    osc_index_inc();
+	    osc_inc_put_index(osc, buffer);
 	}
 }
 
-void osc_set_enabled(bool enabled)
+void osc_set_enabled(osc_t* osc, bool enabled)
 {
-	osc.enabled = enabled;
+	osc->enabled = enabled;
 }
 
-bool osc_enabled(void)
+bool osc_enabled(osc_t* osc)
 {
-	return osc.enabled;
+	return osc->enabled;
 }
 
-void osc_reset(void)
+void osc_reset(osc_t* osc)
 {
-	size_t n = 0;
-
 	size_t i;
-	for(i = 0; i < osc.used_count; i ++){
-		n = osc.used_map[i];
+	for(i = 0; i < osc->channels_count; i ++){
+        osc_channel_reset(osc, i);
+	}
 
-        osc_channel_reset(n);
+	for(i = 0; i < osc->buffers_count; i ++){
+	    osc_buffer_reset(osc_buffer(osc, i));
 	}
 
 	// Дециматор.
-	decim_reset(&osc.decim);
+	decim_reset(&osc->decim);
 
-	// Семплы и индекс.
-	osc.samples = 0;
-	osc.index = 0;
+	// Используемые каналы.
+	osc->enabled_channels = 0;
 
-    // Память будет освобождена, т.к.
-	// все используемые каналы сброшены,
-    // буферы каналов больше не действительны.
-    osc.used_count = 0;
-
-    // Сбросим пул данных.
-    osc_pool_reset();
+	// Количество семплов в буферах данных.
+	osc->samples = 0;
 
     // Время.
-    osc.time = 0;
+    osc->time = 0;
 
     // Пауза.
-    osc.pause_enabled = false;
-    osc.pause_samples = 0;
+    osc->pause_enabled = false;
+    osc->pause_samples = 0;
+    osc->pause_counter = 0;
 }
 
-size_t osc_used_channels(void)
+iq15_t osc_time(osc_t* osc)
 {
-	return osc.used_count;
+    return osc->time;
 }
 
-size_t osc_used_index(size_t n)
+size_t osc_rate(osc_t* osc)
 {
-    return osc.used_map[n];
+    return decim_scale(&osc->decim);
 }
 
-iq15_t osc_time(void)
+size_t osc_channels_count(osc_t* osc)
 {
-    return osc.time;
+    return osc->channels_count;
 }
 
-size_t osc_rate(void)
+size_t osc_samples_count(osc_t* osc)
 {
-    //return osc.rate;
-    return decim_scale(&osc.decim);
+    return osc->samples;
 }
 
-size_t osc_samples(void)
+size_t osc_buffers_count(osc_t* osc)
 {
-    return osc.samples;
+    return osc->buffers_count;
 }
 
-size_t osc_index(void)
+size_t osc_current_buffer(osc_t* osc)
 {
-    return osc.index;
+    return osc->get_buf_index;
 }
 
-size_t osc_next_index(size_t index)
+size_t osc_next_buffer(osc_t* osc)
 {
-    return osc_index_next(index);
+    osc_buffers_inc_get_index(osc);
+
+    return osc->get_buf_index;
 }
 
-size_t osc_sample_index(size_t sample)
+size_t osc_next_buffer_index(osc_t* osc, size_t buf)
 {
-    size_t index = sample + osc.index;
+    return osc_buffer_index_next(osc, osc->get_buf_index);
+}
 
-    if (index >= osc.samples) index -= osc.samples;
+size_t osc_buffer_samples_count(osc_t* osc, size_t buf)
+{
+    if(buf >= osc->buffers_count) return 0;
+
+    osc_buffer_t* buffer = osc_buffer(osc, buf);
+
+    return buffer->count;
+}
+
+size_t osc_buffer_sample_index(osc_t* osc, size_t buf)
+{
+    if(buf >= osc->buffers_count) return 0;
+
+    osc_buffer_t* buffer = osc_buffer(osc, buf);
+
+    return buffer->index;
+}
+
+size_t osc_buffer_next_sample(osc_t* osc, size_t buf)
+{
+    if(buf >= osc->buffers_count) return 0;
+
+    osc_buffer_t* buffer = osc_buffer(osc, buf);
+
+    osc_sample_index_inc(osc, buffer);
+
+    return buffer->index;
+}
+
+size_t osc_next_sample_index(osc_t* osc, size_t index)
+{
+    return osc_sample_index_next(osc, index);
+}
+
+size_t osc_buffer_sample_number_index(osc_t* osc, size_t buf, size_t sample)
+{
+    if(buf >= osc->buffers_count) return 0;
+
+    osc_buffer_t* buffer = osc_buffer(osc, buf);
+
+    size_t index = sample + buffer->index;
+
+    if (index >= osc->samples) index -= osc->samples;
 
     return index;
 }
 
-size_t osc_skew(void)
+osc_value_t osc_buffer_channel_value(osc_t* osc, size_t buf, size_t n, size_t index)
 {
-    return decim_skew(&osc.decim);
+    if(buf >= osc->buffers_count) return 0;
+    if(n >= osc->channels_count) return 0;
+
+    osc_buffer_t* buffer = osc_buffer(osc, buf);
+    osc_channel_t* channel = osc_channel(osc, n);
+
+    return osc_channel_get_value(osc, channel, buffer, index);
 }
 
-void osc_pause(iq15_t time)
+bool osc_buffer_paused(osc_t* osc, size_t buf)
 {
-    lq15_t time_samples = iq15_imull(time, AIN_SAMPLE_FREQ);
-    size_t samples = (size_t)IQ15_INT(time_samples);
+    //return osc->pause_enabled && (osc->pause_counter == osc->pause_samples);
+    if(buf >= osc->buffers_count) return false;
 
-    timerclear(&osc.end_time);
-    osc.pause_counter = 0;
-    osc.pause_samples = samples;
-    osc.pause_enabled = true;
+    osc_buffer_t* buffer = osc_buffer(osc, buf);
+
+    return buffer->paused;
 }
 
-bool osc_paused(void)
+void osc_buffer_resume(osc_t* osc, size_t buf)
 {
-    return osc.pause_enabled && (osc.pause_counter == osc.pause_samples);
+    //osc->pause_enabled = false;
+    if(buf >= osc->buffers_count) return;
+
+    osc_buffer_t* buffer = osc_buffer(osc, buf);
+
+    osc_buffer_reset(buffer);
 }
 
-void osc_resume(void)
+err_t osc_buffer_end_time(osc_t* osc, size_t buf, struct timeval* tv)
 {
-    osc.pause_enabled = false;
+    if(buf >= osc->buffers_count) return E_OUT_OF_RANGE;
+    if(!tv) return E_NULL_POINTER;
+
+    osc_buffer_t* buffer = osc_buffer(osc, buf);
+
+    tv->tv_sec = buffer->end_time.tv_sec;
+    tv->tv_usec = buffer->end_time.tv_usec;
+
+    return E_NO_ERROR;
 }
 
-void osc_end_time(struct timeval* tv)
+err_t osc_buffer_start_time(osc_t* osc, size_t buf, struct timeval* tv)
 {
-    if(!tv) return;
+    if(buf >= osc->buffers_count) return E_OUT_OF_RANGE;
+    if(!tv) return E_NULL_POINTER;
 
-    tv->tv_sec = osc.end_time.tv_sec;
-    tv->tv_usec = osc.end_time.tv_usec;
-}
-
-void osc_start_time(struct timeval* tv)
-{
-    if(!tv) return;
+    err_t err = E_NO_ERROR;
 
     struct timeval time_tv;
-    osc_end_time(&time_tv);
+    err = osc_buffer_end_time(osc, buf, &time_tv);
+    if(err != E_NO_ERROR) return err;
 
     struct timeval period_tv;
-    osc_sample_period(&period_tv);
+    err = osc_sample_period(osc, &period_tv);
+    if(err != E_NO_ERROR) return err;
+
+    size_t buf_samples = osc_buffer_samples_count(osc, buf);
 
     size_t i;
-    for(i = 0; i < osc.samples; i ++){
+    for(i = 0; i < buf_samples; i ++){
         timersub(&time_tv, &period_tv, &time_tv);
     }
 
     tv->tv_sec = time_tv.tv_sec;
     tv->tv_usec = time_tv.tv_usec;
+
+    return E_NO_ERROR;
 }
 
-void osc_sample_period(struct timeval* tv)
+void osc_pause(osc_t* osc, iq15_t time)
 {
-    if(!tv) return;
+    osc_buffer_t* buffer = osc_buffer(osc, osc->put_buf_index);
+
+    if(buffer->paused) return;
+
+    lq15_t time_samples = iq15_imull(time, AIN_SAMPLE_FREQ);
+    size_t samples = (size_t)IQ15_INT(time_samples);
+
+    timerclear(&buffer->end_time);
+    osc->pause_counter = 0;
+    osc->pause_samples = samples;
+    osc->pause_enabled = true;
+}
+
+err_t osc_sample_period(osc_t* osc, struct timeval* tv)
+{
+    if(!tv) return E_NULL_POINTER;
 
     tv->tv_sec = 0;
-    tv->tv_usec = AIN_SAMPLE_PERIOD_US * osc_rate();
+    tv->tv_usec = AIN_SAMPLE_PERIOD_US * osc_rate(osc);
+
+    return E_NO_ERROR;
 }
 
-err_t osc_channel_set_enabled(size_t n, bool enabled)
+err_t osc_channel_set_enabled(osc_t* osc, size_t n, bool enabled)
 {
-	if(n >= AIN_CHANNELS_COUNT) return E_OUT_OF_RANGE;
+	if(n >= osc->channels_count) return E_OUT_OF_RANGE;
 
-	osc_channel_t* channel = osc_channel(n);
+	osc_channel_t* channel = osc_channel(osc, n);
 
 	channel->enabled = enabled;
 
     return E_NO_ERROR;
 }
 
-bool osc_channel_enabled(size_t n)
+bool osc_channel_enabled(osc_t* osc, size_t n)
 {
-	if(n >= AIN_CHANNELS_COUNT) return false;
+	if(n >= osc->channels_count) return false;
 
-	osc_channel_t* channel = osc_channel(n);
+	osc_channel_t* channel = osc_channel(osc, n);
 
 	return channel->enabled;
 }
 
-err_t osc_channel_reset(size_t n)
+err_t osc_channel_reset(osc_t* osc, size_t n)
 {
-	if(n >= AIN_CHANNELS_COUNT) return false;
+	if(n >= osc->channels_count) return false;
 
-	osc_channel_t* channel = osc_channel(n);
+	osc_channel_t* channel = osc_channel(osc, n);
 
 	channel->enabled = false;
-	channel->size = 0;
-	channel->data = NULL;
+	channel->offset = OSC_INDEX_INVALID;
 
 	if(channel->type == OSC_VAL){
 	    avg_reset(&channel->avg);
@@ -577,58 +823,49 @@ err_t osc_channel_reset(size_t n)
 	return E_NO_ERROR;
 }
 
-osc_src_t osc_channel_src(size_t n)
+osc_src_t osc_channel_src(osc_t* osc, size_t n)
 {
-    if(n >= AIN_CHANNELS_COUNT) return 0;
+    if(n >= osc->channels_count) return 0;
 
-    osc_channel_t* channel = osc_channel(n);
+    osc_channel_t* channel = osc_channel(osc, n);
 
     return channel->src;
 }
 
-osc_type_t osc_channel_type(size_t n)
+osc_type_t osc_channel_type(osc_t* osc, size_t n)
 {
-    if(n >= AIN_CHANNELS_COUNT) return 0;
+    if(n >= osc->channels_count) return 0;
 
-    osc_channel_t* channel = osc_channel(n);
+    osc_channel_t* channel = osc_channel(osc, n);
 
     return channel->type;
 }
 
-osc_src_type_t osc_channel_src_type(size_t n)
+osc_src_type_t osc_channel_src_type(osc_t* osc, size_t n)
 {
-    if(n >= AIN_CHANNELS_COUNT) return 0;
+    if(n >= osc->channels_count) return 0;
 
-    osc_channel_t* channel = osc_channel(n);
+    osc_channel_t* channel = osc_channel(osc, n);
 
     return channel->src_type;
 }
 
-size_t osc_channel_src_channel(size_t n)
+size_t osc_channel_src_channel(osc_t* osc, size_t n)
 {
-    if(n >= AIN_CHANNELS_COUNT) return 0;
+    if(n >= osc->channels_count) return 0;
 
-    osc_channel_t* channel = osc_channel(n);
+    osc_channel_t* channel = osc_channel(osc, n);
 
     return channel->src_channel;
 }
 
-osc_value_t osc_channel_value(size_t n, size_t index)
+err_t osc_channel_init(osc_t* osc, size_t n, osc_src_t src, osc_type_t type, osc_src_type_t src_type, size_t src_channel)
 {
-	if(n >= AIN_CHANNELS_COUNT) return 0;
+	if(n >= osc->channels_count) return false;
 
-	osc_channel_t* channel = osc_channel(n);
+	osc_channel_t* channel = osc_channel(osc, n);
 
-	return osc_channel_get_value(channel, index);
-}
-
-err_t osc_channel_init(size_t n, osc_src_t src, osc_type_t type, osc_src_type_t src_type, size_t src_channel)
-{
-	if(n >= AIN_CHANNELS_COUNT) return false;
-
-	osc_channel_t* channel = osc_channel(n);
-
-	osc_channel_reset(n);
+	osc_channel_reset(osc, n);
 
 	channel->src = src;
 	channel->type = type;
@@ -658,42 +895,39 @@ static size_t osc_channel_count_to_size(osc_channel_t* channel, size_t count)
  * Вычисляет размер данных группы каналов,
  * эквивалентный по времени записи максимальной длине буфера.
  * Устанавливает значение размера в канале.
- * Игнорирует запрещённые каналы и
- * не настроенные каналы.
+ * Игнорирует запрещённые каналы.
  * @param channels Каналы.
  * @param count Число каналов.
  * @return Размер.
  */
-static size_t osc_channels_calc_req_size(osc_channel_t* channels, size_t count)
+static size_t osc_channels_calc_req_size(osc_t* osc)
 {
     osc_channel_t* channel = NULL;
 
     size_t req_size = 0;
 
     size_t i;
-    for(i = 0; i < count; i ++){
-    	channel = osc_channel(i);
+    for(i = 0; i < osc->channels_count; i ++){
+    	channel = osc_channel(osc, i);
 
     	// Пропуск запрещённых каналов.
     	if(!channel->enabled) continue;
 
-    	channel->size = osc_channel_count_to_size(channel, OSC_SAMPLES_MAX);
-
-        req_size += channel->size;
+    	req_size += osc_channel_count_to_size(channel, osc->buf_samples);
     }
 
     return req_size;
 }
 
 /**
- * Вычисляет необходимое число семплов для каждого канала.
+ * Вычисляет необходимое число семплов для канала.
  * @param rate Коэффициент числа семплов.
  * @return Необходимое число семплов.
  */
-static size_t osc_calc_channel_samples(iq15_t rate)
+static size_t osc_calc_channel_samples(osc_t* osc, iq15_t rate)
 {
     // Необходимый размер.
-    int32_t samples_count = OSC_SAMPLES_MAX;
+    int32_t samples_count = osc->buf_samples;
     // Скорректируем.
     samples_count = iq15_imul(rate, samples_count);
     // Округлим до целого в меньшую сторону.
@@ -704,22 +938,24 @@ static size_t osc_calc_channel_samples(iq15_t rate)
 
 /**
  * Выделяет буферы данных каналов.
- * Игнорирует запрещённые каналы и
- * каналы с нулевым числов семплов.
+ * Игнорирует запрещённые каналы.
  * @param channels Каналы.
  * @param count Число каналов.
  * @param rate Относительный размер.
  * @return Код ошибки.
  */
-static err_t osc_alloc_buffers(osc_channel_t* channels, size_t count, size_t samples_count)
+static err_t osc_alloc_buffers(osc_t* osc, size_t samples_count)
 {
     osc_channel_t* channel = NULL;
-    osc_value_t* data = NULL;
+    size_t offset = OSC_INDEX_INVALID;
     int32_t size = 0;
 
+    osc_pool_t pool;
+    osc_pool_init(&pool, NULL, osc->buf_samples);
+
     size_t i;
-    for(i = 0; i < count; i ++){
-        channel = &channels[i];
+    for(i = 0; i < osc->channels_count; i ++){
+        channel = osc_channel(osc, i);
 
     	// Пропуск запрещённых каналов.
     	if(!channel->enabled) continue;
@@ -728,38 +964,17 @@ static err_t osc_alloc_buffers(osc_channel_t* channels, size_t count, size_t sam
     	size = osc_channel_count_to_size(channel, samples_count);
 
     	// Минимальный размер.
-		if(size == 0) size = OSC_BUF_SIZE_MIN;
+		if(size == 0) return E_INVALID_VALUE;
 
         // Выделим буфер данных.
-        data = osc_pool_alloc(size);
+		offset = osc_pool_alloc_index(&pool, size);
         // Недостаточно памяти.
-        if(data == NULL) return E_OUT_OF_MEMORY;
+        if(offset == OSC_INDEX_INVALID) return E_OUT_OF_MEMORY;
 
-        channel->data = data;
-        channel->size = size;
+        channel->offset = offset;
     }
 
     return E_NO_ERROR;
-}
-
-/**
- * Формирует карту используемых каналов.
- */
-static void osc_make_used_map(void)
-{
-	size_t n = 0;
-	osc_channel_t* channel = NULL;
-
-	size_t i;
-	for(i = 0; i < OSC_COUNT_MAX; i ++){
-		channel = osc_channel(i);
-
-		if(channel->enabled){
-			osc.used_map[n] = i;
-			n ++;
-		}
-	}
-	osc.used_count = n;
 }
 
 /**
@@ -768,10 +983,10 @@ static void osc_make_used_map(void)
  * @param size_rate Относительный размер данных.
  * @return Время записи осциллограммы.
  */
-static iq15_t osc_calc_time(size_t osc_rate, iq15_t size_rate)
+static iq15_t osc_calc_time(osc_t* osc, size_t osc_rate, iq15_t size_rate)
 {
     // Время буфера для осциллограмм.
-    iq15_t buf_time = (iq15_t)LQ15F(OSC_SAMPLES_MAX, AIN_SAMPLE_FREQ);
+    iq15_t buf_time = (iq15_t)LQ15F(osc->buf_samples, AIN_SAMPLE_FREQ);
     // Учтём снижение частоты дискретизации.
     buf_time = iq15_imul(buf_time, osc_rate);
     // Вычислим время.
@@ -780,14 +995,33 @@ static iq15_t osc_calc_time(size_t osc_rate, iq15_t size_rate)
     return time;
 }
 
-err_t osc_init_channels(size_t rate)
+static void osc_calc_channels_types_count(osc_t* osc)
+{
+    osc_channel_t* channel = NULL;
+
+    osc->enabled_channels = 0;
+    osc->analog_channels = 0;
+    osc->digital_channels = 0;
+
+    size_t i;
+    for(i = 0; i < osc->channels_count; i ++){
+        channel = osc_channel(osc, i);
+        if(channel->enabled){
+            osc->enabled_channels ++;
+            if(channel->type == OSC_VAL) osc->analog_channels ++;
+            else osc->digital_channels ++;
+        }
+    }
+}
+
+err_t osc_init_channels(osc_t* osc, size_t rate)
 {
     if(rate == 0) return E_INVALID_VALUE;
 
     err_t err = E_NO_ERROR;
 
-    size_t total_req_size = osc_channels_calc_req_size(osc.channels, OSC_COUNT_MAX);
-    size_t total_size = OSC_SAMPLES_MAX;
+    size_t total_req_size = osc_channels_calc_req_size(osc);
+    size_t total_size = osc->buf_samples;
 
     // Вычислим относительный размер для всех каналов.
     //iq15_t size_rate = IQ15F(total_size, total_req_size);
@@ -795,32 +1029,48 @@ err_t osc_init_channels(size_t rate)
     iq15_t size_rate = (iq15_t)((((int64_t)total_size) << Q15_FRACT_BITS) / total_req_size);
 
     // Вычислим число семплов.
-    size_t samples_count = osc_calc_channel_samples(size_rate);
+    size_t samples_count = osc_calc_channel_samples(osc, size_rate);
     // Если число выходит за пределы - ошибка.
-    if(samples_count < OSC_SAMPLES_MIN || samples_count > OSC_SAMPLES_MAX) return E_OUT_OF_RANGE;
+    if(samples_count == 0 || samples_count > osc->buf_samples) return E_OUT_OF_RANGE;
 
     // Выделим память.
-    err = osc_alloc_buffers(osc.channels, OSC_COUNT_MAX, samples_count);
+    err = osc_alloc_buffers(osc, samples_count);
     if(err != E_NO_ERROR) return err;
 
-    // Используемые каналы.
-    osc_make_used_map();
+    // Числов каналов разного типа.
+     osc_calc_channels_types_count(osc);
+
+    // Число семплов.
+    osc->samples = samples_count;
 
     // Дециматоры.
-    decim_init(&osc.decim, rate);
+    decim_init(&osc->decim, rate);
 
-    osc.index = 0;
-    osc.samples = samples_count;
-    //osc.rate = rate;
-    osc.time = osc_calc_time(rate, size_rate);
+    // Вычисление времени осциллограммы.
+    osc->time = osc_calc_time(osc, rate, size_rate);
 
     return E_NO_ERROR;
 }
 
-const char* osc_channel_name(size_t n)
+size_t osc_enabled_channels(osc_t* osc)
 {
-    osc_src_t src = osc_channel_src(n);
-    size_t src_n = osc_channel_src_channel(n);
+    return osc->enabled_channels;
+}
+
+size_t osc_analog_channels(osc_t* osc)
+{
+    return osc->analog_channels;
+}
+
+size_t osc_digital_channels(osc_t* osc)
+{
+    return osc->digital_channels;
+}
+
+const char* osc_channel_name(osc_t* osc, size_t n)
+{
+    osc_src_t src = osc_channel_src(osc, n);
+    size_t src_n = osc_channel_src_channel(osc, n);
 
     if(src == OSC_AIN) return ain_channel_name(src_n);
     else if(src == OSC_DIN) return din_name(src_n);
@@ -828,23 +1078,62 @@ const char* osc_channel_name(size_t n)
     return NULL;
 }
 
-const char* osc_channel_unit(size_t n)
+const char* osc_channel_unit(osc_t* osc, size_t n)
 {
-    osc_src_t src = osc_channel_src(n);
-    size_t src_n = osc_channel_src_channel(n);
+    osc_src_t src = osc_channel_src(osc, n);
+    size_t src_n = osc_channel_src_channel(osc, n);
 
     if(src == OSC_AIN) return ain_channel_unit(src_n);
 
     return NULL;
 }
 
-iq15_t osc_channel_scale(size_t n)
+iq15_t osc_channel_scale(osc_t* osc, size_t n)
 {
-    osc_src_t src = osc_channel_src(n);
-    size_t src_n = osc_channel_src_channel(n);
+    osc_src_t src = osc_channel_src(osc, n);
+    size_t src_n = osc_channel_src_channel(osc, n);
 
     if(src == OSC_AIN) return ain_channel_real_k(src_n);
 
     return IQ15I(1);
+}
+
+/**
+ * Получает индекс канала по типу и номеру.
+ * @param osc Осциллограмма.
+ * @param type Тип канала.
+ * @param n Номер канала канала заданного типа.
+ * @return Индекс канала.
+ */
+static size_t osc_channel_type_index(osc_t* osc, osc_type_t type, size_t n)
+{
+    osc_channel_t* channel = NULL;
+    size_t ch_cnt = 0;
+
+    size_t i;
+    for(i = 0; i < osc->channels_count; i ++){
+        channel = osc_channel(osc, i);
+
+        if(channel->type == type){
+            if(ch_cnt == n) return i;
+
+            ch_cnt ++;
+        }
+    }
+    return OSC_INDEX_INVALID;
+}
+
+size_t osc_analog_channel_index(osc_t* osc, size_t n)
+{
+    if(n >= osc->analog_channels) return OSC_INDEX_INVALID;
+
+    return osc_channel_type_index(osc, OSC_VAL, n);
+}
+
+size_t osc_digital_channel_index(osc_t* osc, size_t n)
+{
+    if(n >= osc->digital_channels) return OSC_INDEX_INVALID;
+
+    return osc_channel_type_index(osc, OSC_BIT, n);
 }
 

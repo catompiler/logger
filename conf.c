@@ -6,6 +6,7 @@
 #include "ain.h"
 #include "din.h"
 #include "osc.h"
+#include "oscs.h"
 #include "trig.h"
 #include "logger.h"
 #include <sys/time.h>
@@ -279,10 +280,13 @@ static err_t conf_ini_read_oscs(ini_t* ini, FIL* f)
     size_t rate;
     bool enabled;
 
+    osc_t* osc = oscs_get_osc();
+    size_t osc_channels = osc_channels_count(osc);
+
     char osc_sect[CONF_INI_SECT_BUF_LEN];
 
     size_t i;
-    for(i = 0; i < OSC_COUNT_MAX; i ++){
+    for(i = 0; i < osc_channels; i ++){
         snprintf(osc_sect, CONF_INI_SECT_BUF_LEN, "osc%u", i);
 
         src = ini_valuei(ini, osc_sect, "src", 0);
@@ -300,14 +304,14 @@ static err_t conf_ini_read_oscs(ini_t* ini, FIL* f)
         enabled = ini_valuei(ini, osc_sect, "enabled", 0);
         if(f_error(f)) return E_IO_ERROR;
 
-        osc_channel_init(i, src, type, src_type, src_channel);
-        osc_channel_set_enabled(i, enabled);
+        osc_channel_init(osc, i, src, type, src_type, src_channel);
+        osc_channel_set_enabled(osc, i, enabled);
     }
 
     rate = ini_valuei(ini, "osc", "rate", 1);
     if(f_error(f)) return E_IO_ERROR;
 
-    return osc_init_channels(rate);
+    return osc_init_channels(osc, rate);
 }
 
 static err_t conf_ini_read_trigs(ini_t* ini, FIL* f)

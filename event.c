@@ -6,6 +6,7 @@
 #include "ain.h"
 #include "din.h"
 #include "osc.h"
+#include "oscs.h"
 #include "trig.h"
 #include "q15.h"
 #include "q15_str.h"
@@ -64,18 +65,20 @@ ALWAYS_INLINE static suseconds_t event_osc_clamp_usec(suseconds_t usec)
  */
 
 //! Записывает имена каналов.
-static err_t event_csv_write_oscs_ch_names(FIL* f)
+static err_t event_csv_write_oscs_ch_names(FIL* f, osc_t* osc)
 {
     size_t i;
-    size_t used_count = osc_used_channels();
+    size_t ch_count = osc_channels_count(osc);
 
     const char* str = NULL;
 
     f_puts("Name", f);
     if(f_error(f)) return E_IO_ERROR;
 
-    for(i = 0; i < used_count; i ++){
-        str = osc_channel_name(i);
+    for(i = 0; i < ch_count; i ++){
+        if(!osc_channel_enabled(osc, i)) continue;
+
+        str = osc_channel_name(osc, i);
 
         f_puts(csv_evdelim, f);
         if(f_error(f)) return E_IO_ERROR;
@@ -92,18 +95,20 @@ static err_t event_csv_write_oscs_ch_names(FIL* f)
 }
 
 //! Записывает единицы измерения каналов.
-static err_t event_csv_write_oscs_ch_units(FIL* f)
+static err_t event_csv_write_oscs_ch_units(FIL* f, osc_t* osc)
 {
     size_t i;
-    size_t used_count = osc_used_channels();
+    size_t ch_count = osc_channels_count(osc);
 
     const char* str = NULL;
 
     f_puts("Unit", f);
     if(f_error(f)) return E_IO_ERROR;
 
-    for(i = 0; i < used_count; i ++){
-        str = osc_channel_unit(i);
+    for(i = 0; i < ch_count; i ++){
+        if(!osc_channel_enabled(osc, i)) continue;
+
+        str = osc_channel_unit(osc, i);
 
         f_puts(csv_evdelim, f);
         if(f_error(f)) return E_IO_ERROR;
@@ -119,21 +124,22 @@ static err_t event_csv_write_oscs_ch_units(FIL* f)
     return E_NO_ERROR;
 }
 
-#if EVENT_OSC_WRITE_SCALE == 1
+#if EVENT_CSV_OSC_WRITE_SCALE == 1
 //! Записывает коэффициенты каналов.
-static err_t event_csv_write_oscs_ch_scales(FIL* f)
+static err_t event_csv_write_oscs_ch_scales(FIL* f, osc_t* osc)
 {
     size_t i;
-    size_t used_count = osc_used_channels();
+    size_t ch_count = osc_channels_count(osc);
 
     iq15_t scale = 0;
 
     f_puts("Scale", f);
     if(f_error(f)) return E_IO_ERROR;
 
-    for(i = 0; i < used_count; i ++){
+    for(i = 0; i < ch_count; i ++){
+        if(!osc_channel_enabled(osc, i)) continue;
 
-        scale = osc_channel_scale(i);
+        scale = osc_channel_scale(osc, i);
 
         f_puts(csv_evdelim, f);
         if(f_error(f)) return E_IO_ERROR;
@@ -157,16 +163,16 @@ static err_t event_csv_write_oscs_ch_scales(FIL* f)
  * @param time_tv Время семпла.
  * @return Код ошибки.
  */
-static err_t event_csv_write_oscs_chs_data(FIL* f, size_t index, struct timeval* time_tv)
+static err_t event_csv_write_oscs_chs_data(FIL* f, size_t index, struct timeval* time_tv, osc_t* osc, size_t buf)
 {
     size_t i;
     size_t ch_index = 0;
-    size_t used_count = osc_used_channels();
+    size_t ch_count = osc_channels_count(osc);
 
     size_t sample_index = 0;
 
     osc_value_t data;
-#if EVENT_OSC_VALUE_ABSOLUTE == 1
+#if EVENT_CSV_OSC_VALUE_ABSOLUTE == 1
     iq15_t scale;
 #endif
     iq15_t value;
@@ -184,23 +190,24 @@ static err_t event_csv_write_oscs_chs_data(FIL* f, size_t index, struct timeval*
     if(f_error(f)) return E_IO_ERROR;
 
     // Для отладки продолжение вывода строк данных.
-    if(index >= osc_samples()) return E_NO_ERROR;
+    if(index >= osc_buffer_samples_count(osc, buf)) return E_NO_ERROR;
 
-    sample_index = osc_sample_index(index);
+    sample_index = osc_buffer_sample_number_index(osc, buf, index);
 
-    for(i = 0; i < used_count; i ++){
+    for(i = 0; i < ch_count; i ++){
+        if(!osc_channel_enabled(osc, i)) continue;
 
         f_puts(csv_evdelim, f);
         if(f_error(f)) return E_IO_ERROR;
 
-        ch_index = osc_used_index(i);
+        ch_index = i;
 
-        data = osc_channel_value(ch_index, sample_index);
+        data = osc_buffer_channel_value(osc, buf, ch_index, sample_index);
 
-        if(osc_channel_src(ch_index) == OSC_AIN){
+        if(osc_channel_src(osc, ch_index) == OSC_AIN){
 
-#if EVENT_OSC_VALUE_ABSOLUTE == 1
-            scale = osc_channel_scale(ch_index);
+#if EVENT_CSV_OSC_VALUE_ABSOLUTE == 1
+            scale = osc_channel_scale(osc, ch_index);
             value = iq15_mull(data, scale);
 #else
             value = data;
@@ -222,22 +229,22 @@ static err_t event_csv_write_oscs_chs_data(FIL* f, size_t index, struct timeval*
 }
 
 //! Записывает данные осциллограмм.
-static err_t event_csv_write_oscs_chs_datas(FIL* f)
+static err_t event_csv_write_oscs_chs_datas(FIL* f, osc_t* osc, size_t buf)
 {
     err_t err = E_NO_ERROR;
 
     size_t i;
 
-    size_t max_samples = osc_samples();
+    size_t max_samples = osc_buffer_samples_count(osc, buf);
 
     struct timeval time_tv;
     struct timeval period_tv;
 
-    osc_start_time(&time_tv);
-    osc_sample_period(&period_tv);
+    osc_buffer_start_time(osc, buf, &time_tv);
+    osc_sample_period(osc, &period_tv);
 
     for(i = 0; i < max_samples; i ++){
-        err = event_csv_write_oscs_chs_data(f, i, &time_tv);
+        err = event_csv_write_oscs_chs_data(f, i, &time_tv, osc, buf);
         if(err != E_NO_ERROR) return err;
 
         timeradd(&time_tv, &period_tv, &time_tv);
@@ -247,31 +254,31 @@ static err_t event_csv_write_oscs_chs_datas(FIL* f)
 }
 
 //! Записывает осциллограммы.
-static err_t event_csv_write_oscs(FIL* f)
+static err_t event_csv_write_oscs(FIL* f, osc_t* osc, size_t buf)
 {
     err_t err = E_NO_ERROR;
 
-    size_t used_count = osc_used_channels();
+    size_t enabled_count = osc_enabled_channels(osc);
 
-    f_printf(f, "Channels: %u\n", (unsigned int)used_count);
+    f_printf(f, "Channels: %u\n", (unsigned int)enabled_count);
     if(f_error(f)) return E_IO_ERROR;
 
     // Записать имена каналов.
-    err = event_csv_write_oscs_ch_names(f);
+    err = event_csv_write_oscs_ch_names(f, osc);
     if(err != E_NO_ERROR) return err;
 
     // Записать единиц измерения каналов.
-    err = event_csv_write_oscs_ch_units(f);
+    err = event_csv_write_oscs_ch_units(f, osc);
     if(err != E_NO_ERROR) return err;
 
-#if EVENT_OSC_WRITE_SCALE == 1
+#if EVENT_CSV_OSC_WRITE_SCALE == 1
     // Записать коэффициентов каналов.
-    err = event_csv_write_oscs_ch_scales(f);
+    err = event_csv_write_oscs_ch_scales(f, osc);
     if(err != E_NO_ERROR) return err;
 #endif
 
     // Записать разницу хода каналов.
-    err = event_csv_write_oscs_chs_datas(f);
+    err = event_csv_write_oscs_chs_datas(f, osc, buf);
     if(err != E_NO_ERROR) return err;
 
     return E_NO_ERROR;
@@ -282,9 +289,11 @@ static err_t event_csv_write_oscs(FIL* f)
  * @param f Файл.
  * @param ev_tm Время события.
  * @param event Событие.
+ * @param osc Осциллограмма.
+ * @param buf Буфер осциллограммы.
  * @return Код ошибки.
  */
-static err_t event_csv_write_file(FIL* f, struct tm* ev_tm, event_t* event)
+static err_t event_csv_write_file(FIL* f, struct tm* ev_tm, event_t* event, osc_t* osc, size_t buf)
 {
     err_t err = E_NO_ERROR;
 
@@ -309,16 +318,13 @@ static err_t event_csv_write_file(FIL* f, struct tm* ev_tm, event_t* event)
     f_printf(f, "Freq%s%u\n", csv_evdelim, AIN_SAMPLE_FREQ);
     if(f_error(f)) return E_IO_ERROR;
 
-    f_printf(f, "Rate%s%u\n", csv_evdelim, osc_rate());
+    f_printf(f, "Rate%s%u\n", csv_evdelim, osc_rate(osc));
     if(f_error(f)) return E_IO_ERROR;
 
-    f_printf(f, "Skew%s%u\n", csv_evdelim, osc_skew());
+    f_printf(f, "Samples%s%u\n", csv_evdelim, osc_buffer_samples_count(osc, buf));
     if(f_error(f)) return E_IO_ERROR;
 
-    f_printf(f, "Samples%s%u\n", csv_evdelim, osc_samples());
-    if(f_error(f)) return E_IO_ERROR;
-
-    err = event_csv_write_oscs(f);
+    err = event_csv_write_oscs(f, osc, buf);
     if(err != E_NO_ERROR) return err;
 
     return E_NO_ERROR;
@@ -347,7 +353,9 @@ static err_t event_csv_write(event_t* event)
     fr = f_open(&f, evbuf, FA_WRITE | FA_CREATE_ALWAYS);
     if(fr != FR_OK) return E_IO_ERROR;
 
-    err = event_csv_write_file(&f, ev_tm, event);
+    osc_t* osc = oscs_get_osc();
+
+    err = event_csv_write_file(&f, ev_tm, event, osc, osc_current_buffer(osc));
 
     f_close(&f);
 
@@ -355,58 +363,29 @@ static err_t event_csv_write(event_t* event)
 }
 
 /**
- * Подсчитывает количество аналоговых и цифровых каналов.
- * @param analog_channels Число аналоговых каналов.
- * @param digital_channels Число цифровых каналов.
- */
-static void event_ctrd_calc_channels(size_t* analog_channels, size_t* digital_channels)
-{
-    size_t i;
-    size_t used_count = osc_used_channels();
-
-    for(i = 0; i < used_count; i ++){
-        if(osc_channel_type(i) == OSC_VAL){
-            if(analog_channels) (*analog_channels) ++;
-        }else{ // OSC_BIT
-            if(digital_channels) (*digital_channels) ++;
-        }
-    }
-}
-
-/**
  * Получает данные об аналоговом канале.
  * @param index Индекс аналогового канала.
  * @param channel Данные о канале.
  */
-static void comtrade_get_analog_channel(size_t index, comtrade_analog_channel_t* channel)
+static void comtrade_get_analog_channel(comtrade_osc_data_t osc_data, size_t index, comtrade_analog_channel_t* channel)
 {
-    size_t channel_n = 0;
+    osc_t* osc = (osc_t*)osc_data;
 
-    size_t i;
-    size_t ch_index = 0;
-    size_t used_count = osc_used_channels();
+    size_t ch_index = osc_analog_channel_index(osc, index);
+    if(ch_index == OSC_INDEX_INVALID) return;
 
-    for(i = 0; i < used_count; i ++){
-        if(osc_channel_type(i) == OSC_VAL){
-            if(channel_n == index){
-                ch_index = osc_used_index(i);
-                channel->ch_id = osc_channel_name(ch_index);
-                channel->ph = NULL;
-                channel->ccbm = NULL;
-                channel->uu = osc_channel_unit(ch_index);
-                channel->a = osc_channel_scale(ch_index) / Q15_BASE;
-                channel->b = IQ15(1);
-                channel->skew = 0;
-                channel->min = COMTRADE_DAT_MIN;
-                channel->max = COMTRADE_DAT_MAX;
-                channel->primary = IQ15(1);
-                channel->secondary = IQ15(1);
-                channel->ps = COMTRADE_PS_PRIMARY;
-                break;
-            }
-            channel_n ++;
-        }
-    }
+    channel->ch_id = osc_channel_name(osc, ch_index);
+    channel->ph = NULL;
+    channel->ccbm = NULL;
+    channel->uu = osc_channel_unit(osc, ch_index);
+    channel->a = osc_channel_scale(osc, ch_index) / Q15_BASE;
+    channel->b = IQ15(1);
+    channel->skew = 0;
+    channel->min = COMTRADE_DAT_MIN;
+    channel->max = COMTRADE_DAT_MAX;
+    channel->primary = IQ15(1);
+    channel->secondary = IQ15(1);
+    channel->ps = COMTRADE_PS_PRIMARY;
 }
 
 /**
@@ -414,27 +393,17 @@ static void comtrade_get_analog_channel(size_t index, comtrade_analog_channel_t*
  * @param index Индекс цифрового канала.
  * @param channel Данные о канале.
  */
-static void comtrade_get_digital_channel(size_t index, comtrade_digital_channel_t* channel)
+static void comtrade_get_digital_channel(comtrade_osc_data_t osc_data, size_t index, comtrade_digital_channel_t* channel)
 {
-    size_t channel_n = 0;
+    osc_t* osc = (osc_t*)osc_data;
 
-    size_t i;
-    size_t ch_index = 0;
-    size_t used_count = osc_used_channels();
+    size_t ch_index = osc_digital_channel_index(osc, index);
+    if(ch_index == OSC_INDEX_INVALID) return;
 
-    for(i = 0; i < used_count; i ++){
-        if(osc_channel_type(i) == OSC_BIT){
-            if(channel_n == index){
-                ch_index = osc_used_index(i);
-                channel->ch_id = osc_channel_name(ch_index);
-                channel->ph = NULL;
-                channel->ccbm = NULL;
-                channel->y = false;
-                break;
-            }
-            channel_n ++;
-        }
-    }
+    channel->ch_id = osc_channel_name(osc, ch_index);
+    channel->ph = NULL;
+    channel->ccbm = NULL;
+    channel->y = false;
 }
 
 /**
@@ -442,12 +411,15 @@ static void comtrade_get_digital_channel(size_t index, comtrade_digital_channel_
  * @param index Индекс частоты дискретизации.
  * @param rate Данные о частоте дискретизации.
  */
-static void comtrade_get_sample_rate(size_t index, comtrade_sample_rate_t* rate)
+static void comtrade_get_sample_rate(comtrade_osc_data_t osc_data, size_t index, comtrade_sample_rate_t* rate)
 {
+    osc_t* osc = (osc_t*)osc_data;
+    size_t buf = osc_current_buffer(osc);
+
     (void) index;
 
-    rate->samp = IQ15(AIN_SAMPLE_FREQ) / osc_rate();
-    rate->endsamp = osc_samples();
+    rate->samp = IQ15(AIN_SAMPLE_FREQ) / osc_rate(osc);
+    rate->endsamp = osc_buffer_samples_count(osc, buf);
 }
 
 /**
@@ -456,24 +428,16 @@ static void comtrade_get_sample_rate(size_t index, comtrade_sample_rate_t* rate)
  * @param sample Номер семпла канала.
  * @return Значение канала.
  */
-static int16_t comtrade_get_analog_channel_value(size_t index, size_t sample)
+static int16_t comtrade_get_analog_channel_value(comtrade_osc_data_t osc_data, size_t index, size_t sample)
 {
-    size_t channel_n = 0;
+    osc_t* osc = (osc_t*)osc_data;
+    size_t buf = osc_current_buffer(osc);
 
-    size_t i;
-    size_t ch_index = 0;
-    size_t used_count = osc_used_channels();
+    size_t ch_index = osc_analog_channel_index(osc, index);
+    if(ch_index == OSC_INDEX_INVALID) return COMTRADE_UNKNOWN_VALUE;
 
-    for(i = 0; i < used_count; i ++){
-        if(osc_channel_type(i) == OSC_VAL){
-            if(channel_n == index){
-                ch_index = osc_used_index(i);
-                return osc_channel_value(ch_index, osc_sample_index(sample));
-            }
-            channel_n ++;
-        }
-    }
-    return 0x8000;
+    return osc_buffer_channel_value(osc, buf, ch_index,
+            osc_buffer_sample_number_index(osc, buf, sample));
 }
 
 /**
@@ -482,24 +446,16 @@ static int16_t comtrade_get_analog_channel_value(size_t index, size_t sample)
  * @param sample Номер семпла канала.
  * @return Значение канала.
  */
-static bool comtrade_get_digital_channel_value(size_t index, size_t sample)
+static bool comtrade_get_digital_channel_value(comtrade_osc_data_t osc_data, size_t index, size_t sample)
 {
-    size_t channel_n = 0;
+    osc_t* osc = (osc_t*)osc_data;
+    size_t buf = osc_current_buffer(osc);
 
-    size_t i;
-    size_t ch_index = 0;
-    size_t used_count = osc_used_channels();
+    size_t ch_index = osc_digital_channel_index(osc, index);
+    if(ch_index == OSC_INDEX_INVALID) return COMTRADE_UNKNOWN_VALUE;
 
-    for(i = 0; i < used_count; i ++){
-        if(osc_channel_type(i) == OSC_BIT){
-            if(channel_n == index){
-                ch_index = osc_used_index(i);
-                return osc_channel_value(ch_index, osc_sample_index(sample)) != 0;
-            }
-            channel_n ++;
-        }
-    }
-    return false;
+    return osc_buffer_channel_value(osc, buf, ch_index,
+            osc_buffer_sample_number_index(osc, buf, sample)) != 0;
 }
 
 /**
@@ -546,8 +502,12 @@ static err_t event_ctrd_write_dat(event_t* event, comtrade_t* comtrade)
     fr = f_open(&f, evbuf, FA_WRITE | FA_CREATE_ALWAYS);
     if(fr != FR_OK) return E_IO_ERROR;
 
+    osc_t* osc = (osc_t*)comtrade->osc_data;
+    size_t buf = osc_current_buffer(osc);
+
+    size_t samples_count = osc_buffer_samples_count(osc, buf);
     size_t nsample;
-    for(nsample = 0; nsample < osc_samples(); nsample ++){
+    for(nsample = 0; nsample < samples_count; nsample ++){
         err = comtrade_append_dat(&f, comtrade, nsample, nsample);
         if(err != E_NO_ERROR) break;
     }
@@ -566,22 +526,20 @@ err_t event_ctrd_write(event_t* event)
     comtrade_t comtrade;
     memset(&comtrade, 0x0, sizeof(comtrade_t));
 
-    size_t analog_channels = 0;
-    size_t digital_channels = 0;
-
-    event_ctrd_calc_channels(&analog_channels, &digital_channels);
+    osc_t* osc = oscs_get_osc();
+    size_t buf = osc_current_buffer(osc);
 
     struct timeval time_tv;
     struct timeval period_tv;
 
-    osc_start_time(&time_tv);
-    osc_sample_period(&period_tv);
+    osc_buffer_start_time(osc, buf, &time_tv);
+    osc_sample_period(osc, &period_tv);
 
     comtrade.station_name = logger_station_name();
     comtrade.rec_dev_id = logger_dev_id();
-    comtrade.analog_channels = analog_channels;
+    comtrade.analog_channels = osc_analog_channels(osc);
     comtrade.get_analog_channel = comtrade_get_analog_channel;
-    comtrade.digital_channels = digital_channels;
+    comtrade.digital_channels = osc_digital_channels(osc);
     comtrade.get_digital_channel = comtrade_get_digital_channel;
     comtrade.lf = IQ15(AIN_POWER_FREQ);
     comtrade.nrates = 1;
@@ -599,6 +557,8 @@ err_t event_ctrd_write(event_t* event)
     comtrade.get_analog_channel_value = comtrade_get_analog_channel_value;
     comtrade.get_digital_channel_value = comtrade_get_digital_channel_value;
 
+    comtrade.osc_data = osc;
+
     err = E_NO_ERROR;
 
     err = event_ctrd_write_cfg(event, &comtrade);
@@ -614,8 +574,8 @@ err_t event_write(event_t* event)
 {
     err_t err = E_NO_ERROR;
 
-    /*err = event_csv_write(event);
-    if(err != E_NO_ERROR) return err;*/
+    err = event_csv_write(event);
+    if(err != E_NO_ERROR) return err;
 
     err = event_ctrd_write(event);
 

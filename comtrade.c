@@ -43,7 +43,7 @@ static err_t comtrade_cfg_write_analog_channel_line(FIL* f, comtrade_t* comtrade
 
     memset(&channel, 0x0, sizeof(comtrade_analog_channel_t));
 
-    comtrade->get_analog_channel(index, &channel);
+    comtrade->get_analog_channel(comtrade->osc_data, index, &channel);
 
     const char* nullstr = "";
 
@@ -98,7 +98,7 @@ static err_t comtrade_cfg_write_digital_channel_line(FIL* f, comtrade_t* comtrad
 
     memset(&channel, 0x0, sizeof(comtrade_digital_channel_t));
 
-    comtrade->get_digital_channel(index, &channel);
+    comtrade->get_digital_channel(comtrade->osc_data, index, &channel);
 
     const char* nullstr = "";
 
@@ -152,7 +152,7 @@ static err_t comtrade_cfg_write_rate_line(FIL* f, comtrade_t* comtrade, size_t i
 
     memset(&rate, 0x0, sizeof(comtrade_sample_rate_t));
 
-    comtrade->get_sample_rate(index, &rate);
+    comtrade->get_sample_rate(comtrade->osc_data, index, &rate);
 
     if(iq15_tostr(ctrdbuf, COMTRADE_BUF_SIZE, rate.samp) > 0){
         f_puts(ctrdbuf, f);
@@ -296,7 +296,7 @@ err_t comtrade_append_dat(FIL* f, comtrade_t* comtrade, uint32_t sample_index, u
     value = 0;
     size_t i;
     for(i = 0; i < comtrade->analog_channels; i ++){
-        value = comtrade->get_analog_channel_value(i, sample_index);
+        value = comtrade->get_analog_channel_value(comtrade->osc_data, i, sample_index);
 
         fres = f_write(f, &value, sizeof(int16_t), &written);
         if(fres != FR_OK || written != sizeof(int16_t)) return E_IO_ERROR;
@@ -306,7 +306,7 @@ err_t comtrade_append_dat(FIL* f, comtrade_t* comtrade, uint32_t sample_index, u
     value = 0;
     size_t bit = 0;
     for(i = 0; i < comtrade->digital_channels; i ++){
-        if(comtrade->get_digital_channel_value(i, sample_index)){
+        if(comtrade->get_digital_channel_value(comtrade->osc_data, i, sample_index)){
             value |= (1 << bit);
         }
 
