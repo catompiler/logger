@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include "fatfs/ff.h"
 
 
 //! Структура события.
@@ -20,10 +21,11 @@ typedef struct _Event {
 
 /**
  * Записывает событие в файл.
+ * @param filevar Переменная-файл для использования.
  * @param event Событие.
  * @return Код ошибки.
  */
-extern err_t event_write(event_t* event);
+extern err_t event_write(FIL* filevar, event_t* event);
 
 
 #endif /* EVENT_H_ */

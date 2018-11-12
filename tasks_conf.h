@@ -19,8 +19,12 @@
 #define LOGGER_PRIORITY 5
 #define LOGGER_STACK_SIZE (configMINIMAL_STACK_SIZE * 2)
 
+// Trends.
+#define TRENDS_PRIORITY 4
+#define TRENDS_STACK_SIZE (configMINIMAL_STACK_SIZE * 4)
+
 // Storage.
-#define STORAGE_PRIORITY 4
-#define STORAGE_STACK_SIZE (configMINIMAL_STACK_SIZE * 5)
+#define STORAGE_PRIORITY 3
+#define STORAGE_STACK_SIZE (configMINIMAL_STACK_SIZE * 4)
 
 #endif /* TASKS_CONF_H_ */

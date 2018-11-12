@@ -6,6 +6,7 @@
 #include <string.h>
 #include "conf.h"
 #include "utils/utils.h"
+#include "fatfs/ff.h"
 
 
 //! Размер очереди.
@@ -45,6 +46,8 @@ typedef struct _Storage {
     storage_cmd_t queue_storage[STORAGE_QUEUE_SIZE]; //!< Данные очереди.
     StaticQueue_t queue_buffer; //!< Буфер очереди.
     QueueHandle_t queue_handle; //!< Идентификатор очереди.
+    // Общий файл для всех задачь доступа к хранилищу.
+    FIL file; //!< Общий файл.
 } storage_t;
 
 //! Логгер.
@@ -53,7 +56,7 @@ static storage_t storage;
 
 static void storage_task_proc(void*);
 
-err_t storage_init_task(void)
+static err_t storage_init_task(void)
 {
     storage.task_handle = xTaskCreateStatic(storage_task_proc, "storage_task",
                         STORAGE_STACK_SIZE, NULL, STORAGE_PRIORITY, storage.task_stack, &storage.task_buffer);
@@ -84,7 +87,8 @@ static void storage_cmd_read_conf(storage_cmd_t* cmd)
 {
 	err_t err = E_NO_ERROR;
 
-	err = conf_read_ini();
+	memset(&storage.file, 0x0, sizeof(FIL));
+	err = conf_read_ini(&storage.file);
 
 	if(cmd->future) future_finish(cmd->future, int_to_pvoid(err));
 }
@@ -93,7 +97,8 @@ static void storage_cmd_write_event(storage_cmd_t* cmd)
 {
     err_t err = E_NO_ERROR;
 
-    err = event_write(&cmd->write_event.event);
+    memset(&storage.file, 0x0, sizeof(FIL));
+    err = event_write(&storage.file, &cmd->write_event.event);
 
     if(cmd->future) future_finish(cmd->future, int_to_pvoid(err));
 }

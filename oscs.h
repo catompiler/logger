@@ -6,6 +6,9 @@
 #define OSCS_H_
 
 #include "osc.h"
+#include "errors/errors.h"
+#include "q15.h"
+#include <stdbool.h>
 
 //! Число семплов осциллограмм.
 #define OSCS_SAMPLES 1024
@@ -73,5 +76,21 @@ extern void oscs_set_enabled(bool enabled);
  * Сбрасывает осциллограмму.
  */
 extern void oscs_reset(void);
+
+/**
+ * Запускает запись осциллограмм.
+ */
+extern void oscs_start(void);
+
+/**
+ * Останавливает запись осциллограмм.
+ */
+extern void oscs_stop(void);
+
+/**
+ * Получает флаг записи осциллограмм.
+ * @return Флаг записи осциллограмм.
+ */
+extern bool oscs_running(void);
 
 #endif /* OSCS_H_ */

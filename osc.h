@@ -327,12 +327,33 @@ extern err_t osc_buffer_start_time(osc_t* osc, size_t buf, struct timeval* tv);
 extern void osc_pause(osc_t* osc, iq15_t time);
 
 /**
+ * Останавливает запись в текущий буфер и
+ * переключается на следующий.
+ * @param osc Осциллограмма.
+ */
+extern void osc_pause_current(osc_t* osc);
+
+/**
+ * Получает флаг ожидающейся паузы.
+ * @param osc Осциллограмма.
+ * @return Флаг ожидающейся паузы.
+ */
+extern bool osc_pause_pending(osc_t* osc);
+
+/**
  * Получает время (период) семпла осциллограммы.
  * @param osc Осциллограмма.
  * @param tv Время.
  * @return Код ошибки.
  */
 extern err_t osc_sample_period(osc_t* osc, struct timeval* tv);
+
+/**
+ * Получает частоту семплирования осциллограммы.
+ * @param osc Осциллограмма.
+ * @return Частота семплирования.
+ */
+extern iq15_t osc_sample_freq(osc_t* osc);
 
 /**
  * Устанавливает разрешение записи осциллограммы канала.

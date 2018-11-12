@@ -6,7 +6,7 @@ OBJECTS   = main.o FreeRTOS-openocd.o system_stm32f10x.o startup.o\
 			logger.o ain.o fir.o decim.o mwin.o osc.o\
 			hires_timer.o din.o dout.o trig.o ini.o conf.o rootfs.o\
 			dio_upd.o storage.o event.o q15_str.o avg.o maj.o\
-			comtrade.o oscs.o
+			comtrade.o oscs.o trends.o edge_detect.o
 
 # fatfs.
 OBJECTS  += fatfs/ff.o fatfs/ffsystem.o fatfs/ffunicode.o

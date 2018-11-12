@@ -1,12 +1,13 @@
 #include "conf.h"
 #include <string.h>
 #include <stdio.h>
-#include "fatfs/ff.h"
 #include "ini.h"
 #include "ain.h"
 #include "din.h"
+#include "dout.h"
 #include "osc.h"
 #include "oscs.h"
+#include "trends.h"
 #include "trig.h"
 #include "logger.h"
 #include <sys/time.h>
@@ -26,7 +27,7 @@ static const char* config_ini = "config.ini";
 typedef struct _Conf {
     ini_t ini; //!< Парсер ini.
     char ini_line[INI_LINE_LEN]; //!< Линии ini.
-    FIL ini_file; //!< Файл.
+    //FIL ini_file; //!< Файл.
 } conf_t;
 
 //! Конфигуратор.
@@ -239,6 +240,7 @@ static err_t conf_ini_read_ains(ini_t* ini, FIL* f)
 
 static err_t conf_ini_read_dins(ini_t* ini, FIL* f)
 {
+    din_mode_t mode;
     din_type_t type;
     iq15_t time;
     const char* str;
@@ -249,6 +251,9 @@ static err_t conf_ini_read_dins(ini_t* ini, FIL* f)
     size_t i;
     for(i = 0; i < DIN_COUNT; i ++){
         snprintf(din_sect, CONF_INI_SECT_BUF_LEN, "din%u", i);
+
+        mode = ini_valuei(ini, din_sect, "mode", 0);
+        if(f_error(f)) return E_IO_ERROR;
 
         type = ini_valuei(ini, din_sect, "type", 0);
         if(f_error(f)) return E_IO_ERROR;
@@ -265,7 +270,33 @@ static err_t conf_ini_read_dins(ini_t* ini, FIL* f)
 
         time = q15_sat(time);
 
-        din_channel_setup(i, type, time, name);
+        din_channel_setup(i, mode, type, time, name);
+    }
+
+    return E_NO_ERROR;
+}
+
+static err_t conf_ini_read_douts(ini_t* ini, FIL* f)
+{
+    dout_mode_t mode;
+    dout_type_t type;
+
+    char dout_sect[CONF_INI_SECT_BUF_LEN];
+
+    size_t i;
+    for(i = 0; i < DOUT_COUNT; i ++){
+        snprintf(dout_sect, CONF_INI_SECT_BUF_LEN, "dout%u", i);
+
+        mode = ini_valuei(ini, dout_sect, "mode", 0);
+        if(f_error(f)) return E_IO_ERROR;
+
+        type = ini_valuei(ini, dout_sect, "type", 0);
+        if(f_error(f)) return E_IO_ERROR;
+
+        /*enabled = ini_valuei(ini, dout_sect, "enabled", 0);
+        if(f_error(f)) return E_IO_ERROR;*/
+
+        dout_channel_setup(i, mode, type);
     }
 
     return E_NO_ERROR;
@@ -273,6 +304,7 @@ static err_t conf_ini_read_dins(ini_t* ini, FIL* f)
 
 static err_t conf_ini_read_oscs(ini_t* ini, FIL* f)
 {
+    err_t err;
     osc_src_t src;
     osc_type_t type;
     osc_src_type_t src_type;
@@ -311,7 +343,67 @@ static err_t conf_ini_read_oscs(ini_t* ini, FIL* f)
     rate = ini_valuei(ini, "osc", "rate", 1);
     if(f_error(f)) return E_IO_ERROR;
 
-    return osc_init_channels(osc, rate);
+    err = osc_init_channels(osc, rate);
+    if(err != E_NO_ERROR) return err;
+
+    enabled = ini_valuei(ini, "osc", "enabled", 0);
+    if(f_error(f)) return E_IO_ERROR;
+
+    oscs_set_enabled(enabled);
+
+    return E_NO_ERROR;
+}
+
+static err_t conf_ini_read_trends(ini_t* ini, FIL* f)
+{
+    err_t err;
+    osc_src_t src;
+    osc_type_t type;
+    osc_src_type_t src_type;
+    size_t src_channel;
+    size_t rate;
+    bool enabled;
+
+    osc_t* osc = trends_get_osc();
+    size_t osc_channels = osc_channels_count(osc);
+
+    char osc_sect[CONF_INI_SECT_BUF_LEN];
+
+    size_t i;
+    for(i = 0; i < osc_channels; i ++){
+        snprintf(osc_sect, CONF_INI_SECT_BUF_LEN, "trend%u", i);
+
+        src = ini_valuei(ini, osc_sect, "src", 0);
+        if(f_error(f)) return E_IO_ERROR;
+
+        type = ini_valuei(ini, osc_sect, "type", 0);
+        if(f_error(f)) return E_IO_ERROR;
+
+        src_type = ini_valuei(ini, osc_sect, "src_type", 0);
+        if(f_error(f)) return E_IO_ERROR;
+
+        src_channel = ini_valuei(ini, osc_sect, "src_channel", 0);
+        if(f_error(f)) return E_IO_ERROR;
+
+        enabled = ini_valuei(ini, osc_sect, "enabled", 0);
+        if(f_error(f)) return E_IO_ERROR;
+
+        osc_channel_init(osc, i, src, type, src_type, src_channel);
+        osc_channel_set_enabled(osc, i, enabled);
+    }
+
+    rate = ini_valuei(ini, "trend", "rate", 1);
+    if(f_error(f)) return E_IO_ERROR;
+
+    err = osc_init_channels(osc, rate);
+    if(err != E_NO_ERROR) return err;
+
+    enabled = ini_valuei(ini, "trend", "enabled", 0);
+    if(f_error(f)) return E_IO_ERROR;
+
+    trends_set_enabled(enabled);
+
+    return E_NO_ERROR;
 }
 
 static err_t conf_ini_read_trigs(ini_t* ini, FIL* f)
@@ -395,7 +487,13 @@ static err_t conf_read_ini_impl(FIL* f)
     err = conf_ini_read_dins(&conf.ini, f);
     if(err != E_NO_ERROR) return err;
 
+    err = conf_ini_read_douts(&conf.ini, f);
+    if(err != E_NO_ERROR) return err;
+
     err = conf_ini_read_oscs(&conf.ini, f);
+    if(err != E_NO_ERROR) return err;
+
+    err = conf_ini_read_trends(&conf.ini, f);
     if(err != E_NO_ERROR) return err;
 
     err = conf_ini_read_trigs(&conf.ini, f);
@@ -404,17 +502,21 @@ static err_t conf_read_ini_impl(FIL* f)
     return E_NO_ERROR;
 }
 
-err_t conf_read_ini(void)
+err_t conf_read_ini(FIL* filevar)
 {
+    if(filevar == NULL) return E_NULL_POINTER;
+
     FRESULT fr = FR_OK;
     err_t err = E_NO_ERROR;
 
-    fr = f_open(&conf.ini_file, config_ini, FA_READ);
+    FIL* f = filevar;
+
+    fr = f_open(f, config_ini, FA_READ);
     if(fr != FR_OK) return E_IO_ERROR;
 
-    err = conf_read_ini_impl(&conf.ini_file);
+    err = conf_read_ini_impl(f);
 
-    f_close(&conf.ini_file);
+    f_close(f);
 
     return err;
 }

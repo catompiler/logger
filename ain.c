@@ -12,6 +12,7 @@
 #include "hires_timer.h"
 #include "osc.h"
 #include "oscs.h"
+#include "trends.h"
 
 
 //! Размер очереди.
@@ -354,6 +355,10 @@ static void ain_channel_calc_eff(ain_channel_t* channel)
         if(status == ARM_MATH_SUCCESS){
             eff_value = sqrt_value;
         }else{
+            // DEBUG!
+            //channel->eff_value = eff_value;
+            //__disable_irq();
+            //for(;;);
             // Пусть будет 0, корень заведомо вычислится,
             // но если вдруг...
             eff_value = 0;
@@ -439,6 +444,8 @@ static void ain_process_adc_data(uint16_t* adc_data)
 
     hires_timer_value(&tv_prev);*/
 
+    if(!ain.enabled) return;
+
     size_t i;
 
     for(i = 0; i < AIN_CHANNELS_COUNT; i ++){
@@ -457,6 +464,8 @@ static void ain_process_adc_data(uint16_t* adc_data)
 
         // Записать осциллограмму.
         oscs_append();
+        // Записать тренды.
+        trends_append();
     }
 
     /*hires_timer_value(&tv_cur);

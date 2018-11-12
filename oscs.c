@@ -6,6 +6,7 @@ typedef struct _Oscs {
     osc_buffer_t buffers[OSCS_BUFFERS]; //!< Буферы осциллограмм.
     osc_channel_t channels[OSCS_CHANNELS]; //!< Каналы осциллограмм.
     osc_t osc; //!< Осциллограмма.
+    bool running; //!< Флаг работы.
 } oscs_t;
 
 //! Осциллограммы.
@@ -33,6 +34,11 @@ osc_t* oscs_get_osc(void)
 
 void oscs_append(void)
 {
+    if(!oscs.running){
+        if(osc_pause_pending(&oscs.osc)) osc_append(&oscs.osc);
+        return;
+    }
+
     osc_append(&oscs.osc);
 }
 
@@ -70,6 +76,21 @@ void oscs_set_enabled(bool enabled)
 void oscs_reset(void)
 {
     osc_reset(&oscs.osc);
+}
+
+void oscs_start(void)
+{
+    oscs.running = true;
+}
+
+void oscs_stop(void)
+{
+    oscs.running = false;
+}
+
+bool oscs_running(void)
+{
+    return oscs.running;
 }
 
 

@@ -22,12 +22,19 @@ typedef enum _Dout_State {
 	DOUT_ON = 1, //!< Включен.
 } dout_state_t;
 
-//! Тип выхода - инверсия.
-typedef enum _Dout_Type {
+//! Режим выхода - инверсия.
+typedef enum _Dout_Mode {
 	DOUT_NORMAL = 0, //!< Без инверсии.
 	DOUT_INVERTED = 1//!< Инверсия.
-} dout_type_t;
+} dout_mode_t;
 
+//! Тип выхода.
+typedef enum _Dout_Type {
+    DOUT_NONE = 0, //!< Отсутствует.
+    DOUT_RUN = 1, //!< Работа.
+    DOUT_ERROR = 2, //!< Ошибка.
+    DOUT_EVENT = 3 //!< Событие.
+} dout_type_t;
 
 /**
  * Инициализирует цифровые выхода.
@@ -49,7 +56,7 @@ extern err_t dout_channel_init(size_t n, GPIO_TypeDef* gpio, gpio_pin_t pin);
  * @param type Тип.
  * @return Код ошибки.
  */
-extern err_t dout_channel_setup(size_t n, dout_type_t type);
+extern err_t dout_channel_setup(size_t n, dout_mode_t mode, dout_type_t type);
 
 /**
  * Устанавливает выхода.
@@ -63,5 +70,12 @@ extern void dout_process(void);
  * @return Код ошибки.
  */
 extern err_t dout_set_state(size_t n, dout_state_t state);
+
+/**
+ * Устанавливает состояние канала выхода по типу.
+ * @param type Тип.
+ * @param state Состояние.
+ */
+extern void dout_set_type_state(dout_type_t type, dout_state_t state);
 
 #endif /* DOUT_H_ */

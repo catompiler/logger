@@ -12,6 +12,7 @@
 #include "trig.h"
 #include "storage.h"
 #include "oscs.h"
+#include "trends.h"
 #include "utils/utils.h"
 #include <stdio.h>
 #include <time.h>
@@ -44,8 +45,9 @@ typedef uint8_t logger_cmd_t;
 typedef enum _Logger_Init_State {
     LOGGER_INIT_BEGIN = 0,
     LOGGER_INIT_WAIT_READ = 1,
-    LOGGER_INIT_DONE = 2,
-    LOGGER_INIT_RETRY = 3
+    LOGGER_INIT_START = 2,
+    LOGGER_INIT_DONE = 3,
+    LOGGER_INIT_RETRY = 4
 } logger_init_state_t;
 
 //! Состояние записи события.
@@ -57,6 +59,13 @@ typedef enum _Logger_Event_State {
     LOGGER_EVENT_DONE = 4,
     LOGGER_EVENT_RETRY = 5
 } logger_event_state_t;
+
+//! Состояние останова записи.
+typedef enum _Logger_Halt_State {
+    LOGGER_HALT_BEGIN = 0,
+    LOGGER_HALT_SYNC = 1,
+    LOGGER_HALT_DONE = 2
+} logger_halt_state_t;
 
 //! Структура логгера.
 typedef struct _Logger {
@@ -83,6 +92,9 @@ typedef struct _Logger {
     future_t event_future; //!< Будущее.
     TickType_t event_last_write; //!< Последняя запись.
     logger_event_state_t event_state; //!< Состояние записи.
+    // Останов.
+    future_t halt_future; //!< Будущее.
+    logger_halt_state_t halt_state; //!< Состояние останова.
 } logger_t;
 
 //! Логгер.
@@ -121,24 +133,65 @@ err_t logger_init(void)
 
 static void logger_go_init(void)
 {
+    if(logger.state == LOGGER_STATE_NOINIT) return;
+
     logger.state = LOGGER_STATE_NOINIT;
     logger.init_state = LOGGER_INIT_BEGIN;
 }
 
 static void logger_go_run(void)
 {
+    if(logger.state == LOGGER_STATE_RUN) return;
+
     logger.state = LOGGER_STATE_RUN;
 }
 
 static void logger_go_event(void)
 {
+    if(logger.state == LOGGER_STATE_EVENT) return;
+
     logger.state = LOGGER_STATE_EVENT;
     logger.event_state = LOGGER_EVENT_BEGIN;
 }
 
 static void logger_go_error(void)
 {
+    if(logger.state == LOGGER_STATE_ERROR) return;
+
     logger.state = LOGGER_STATE_ERROR;
+}
+
+static void logger_go_halt(void)
+{
+    if(logger.state == LOGGER_STATE_HALT) return;
+
+    logger.state = LOGGER_STATE_HALT;
+    logger.halt_state = LOGGER_HALT_BEGIN;
+}
+
+static void logger_check_dins(void)
+{
+    if(din_type_changed_state(DIN_RESET)) logger_go_init();
+    if(din_type_changed_state(DIN_HALT)) logger_go_halt();
+}
+
+static void logger_update_douts(void)
+{
+    bool st_run = false;
+    bool st_error = false;
+    bool st_event = false;
+
+    st_run |= logger.state == LOGGER_STATE_RUN;
+    st_run |= logger.state == LOGGER_STATE_EVENT;
+    st_run |= (logger.state == LOGGER_STATE_HALT && logger.halt_state != LOGGER_HALT_DONE);
+
+    st_error |= logger.state == LOGGER_STATE_ERROR;
+
+    st_event |= logger.state == LOGGER_STATE_EVENT;
+
+    dout_set_type_state(DOUT_RUN, st_run);
+    dout_set_type_state(DOUT_ERROR, st_error);
+    dout_set_type_state(DOUT_EVENT, st_event);
 }
 
 static void logger_check_trigs(void)
@@ -156,13 +209,32 @@ static void logger_state_noinit(void)
 
 	switch(logger.init_state){
 	case LOGGER_INIT_BEGIN:
-	    ain_set_enabled(false);
-	    trig_set_enabled(false);
-        oscs_set_enabled(false);
 
+	    // Остановить осциллограммы.
+	    if(oscs_running()){
+	        oscs_stop();
+	    }
+
+	    // Остановить тренды.
+	    if(trends_running()){
+	        if(trends_stop(NULL) != E_NO_ERROR) break;
+	    }
+
+	    // Запретить и сбросить АЦП.
+	    ain_set_enabled(false);
 	    ain_reset();
+
+	    // Запретить и сбросить триггеры.
+	    trig_set_enabled(false);
 	    trig_reset();
+
+	    // Запретить и сбросить осциллограммы.
+        oscs_set_enabled(false);
         oscs_reset();
+
+        // Запретить и сбросить тренды.
+        trends_set_enabled(false);
+        trends_reset();
 
 	    printf("Reading conf ini...");
 
@@ -170,8 +242,9 @@ static void logger_state_noinit(void)
         future_init(&logger.conf_future);
 
 	    if(storage_read_conf(&logger.conf_future) == E_NO_ERROR){
-	        printf("error!\r\n");
 	        logger.init_state = LOGGER_INIT_WAIT_READ;
+	    }else{
+	        printf("error send cmd!\r\n");
 	    }
         break;
 
@@ -189,9 +262,8 @@ static void logger_state_noinit(void)
 
                 ain_set_enabled(true);
                 trig_set_enabled(true);
-                oscs_set_enabled(true);
 
-                logger.init_state = LOGGER_INIT_DONE;
+                logger.init_state = LOGGER_INIT_START;
             }else{
                 printf("fail!\r\n");
 
@@ -207,14 +279,33 @@ static void logger_state_noinit(void)
             }
         }
         break;
+
+	case LOGGER_INIT_START:
+        // Запустим осциллограммы.
+        if(oscs_enabled() && !oscs_running()){
+            oscs_start();
+        }
+        // Запустим тренды.
+        if(trends_enabled() && !trends_running()){
+            if(trends_start(NULL) != E_NO_ERROR){
+                break;
+            }
+        }
+
+        // Перейдём в состояние завершения.
+        logger.init_state = LOGGER_INIT_DONE;
+        break;
+
 	case LOGGER_INIT_DONE:
 	    logger_go_run();
         break;
 
 	case LOGGER_INIT_RETRY:
+	    // Если прошёл тайм-аут чтения.
         if(logger.conf_last_read == 0 ||
                 ((xTaskGetTickCount() - logger.conf_last_read) >= LOGGER_CONFIG_DELAY)){
 
+            // Запустим чтение снова.
             logger.init_state = LOGGER_INIT_BEGIN;
         }
 	    break;
@@ -229,16 +320,24 @@ static void logger_state_event(void)
 {
     size_t i;
     err_t err;
+    size_t trig_index;
     iq15_t time_after;
 
     switch(logger.event_state){
     case LOGGER_EVENT_BEGIN:
+
+        if(!oscs_enabled()){
+            logger.event_state = LOGGER_EVENT_DONE;
+            break;
+        }
+
+        trig_index = 0;
         for(i = 0; i < TRIG_COUNT_MAX; i ++){
-            if(trig_channel_activated(i)) break;
+            if(trig_channel_activated(i)) trig_index = i;
         }
 
         gettimeofday(&logger.event.time, NULL);
-        logger.event.trig = i;
+        logger.event.trig = trig_index;
 
         time_after = oscs_time();
         time_after = iq15_mull(time_after, logger.osc_time_ratio);
@@ -261,7 +360,6 @@ static void logger_state_event(void)
         future_init(&logger.event_future);
 
         if(storage_write_event(&logger.event_future, &logger.event) == E_NO_ERROR){
-            printf("error!\r\n");
             logger.event_state = LOGGER_EVENT_WAIT_WRITE;
         }
         break;
@@ -314,6 +412,56 @@ static void logger_state_error(void)
 {
 }
 
+static void logger_state_halt(void)
+{
+    err_t err = E_NO_ERROR;
+
+    switch(logger.halt_state){
+    case LOGGER_HALT_BEGIN:
+
+        if(!trends_enabled()){
+            logger.halt_state = LOGGER_HALT_DONE;
+            break;
+        }
+
+        if(trends_running()){
+            if(trends_stop(NULL) != E_NO_ERROR) break;
+        }
+
+        printf("Sync trends...");
+
+        // Сброс будущего.
+        future_init(&logger.halt_future);
+
+        err = trends_sync(&logger.halt_future);
+        if(err == E_NO_ERROR){
+            logger.halt_state = LOGGER_HALT_SYNC;
+        }else{
+            printf("error send cmd!\r\n");
+        }
+        break;
+    case LOGGER_HALT_SYNC:
+        if(future_done(&logger.halt_future)){
+            // Синхронизация завершена.
+            err = pvoid_to_int(err_t, future_result(&logger.halt_future));
+
+            // Если чтение завершено успешно.
+            if(err == E_NO_ERROR){
+                printf("success!\r\n");
+
+                logger.halt_state = LOGGER_HALT_DONE;
+            }else{
+                printf("fail!\r\n");
+
+                logger_go_error();
+            }
+        }
+        break;
+    case LOGGER_HALT_DONE:
+        break;
+    }
+}
+
 static void logger_process_state(void)
 {
 	switch(logger.state){
@@ -329,6 +477,9 @@ static void logger_process_state(void)
 	case LOGGER_STATE_ERROR:
 		logger_state_error();
 		break;
+    case LOGGER_STATE_HALT:
+        logger_state_halt();
+        break;
 	}
 }
 
@@ -342,11 +493,11 @@ static void logger_task_proc(void* arg)
 
     static logger_cmd_t cmd;
 
-    logger_go_init();
-
     for(;;){
+        logger_check_dins();
     	logger_check_trigs();
     	logger_process_state();
+    	logger_update_douts();
 
     	if(xQueueReceive(logger.queue_handle, &cmd, LOGGER_ITER_DELAY) == pdTRUE){
     		logger_process_cmd(&cmd);

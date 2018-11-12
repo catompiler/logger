@@ -7,7 +7,7 @@
 //! Размер буфера.
 #define COMTRADE_BUF_SIZE 32
 //! Буфер.
-static char ctrdbuf[COMTRADE_BUF_SIZE];
+//static char ctrdbuf[COMTRADE_BUF_SIZE];
 
 
 
@@ -39,11 +39,14 @@ static err_t comtrade_cfg_write_analog_channel_line(FIL* f, comtrade_t* comtrade
 {
     if(!comtrade->get_analog_channel) return E_NULL_POINTER;
 
+    // Буфер.
+    char ctrdbuf[COMTRADE_BUF_SIZE];
+
     comtrade_analog_channel_t channel;
 
     memset(&channel, 0x0, sizeof(comtrade_analog_channel_t));
 
-    comtrade->get_analog_channel(comtrade->osc_data, index, &channel);
+    comtrade->get_analog_channel(comtrade, index, &channel);
 
     const char* nullstr = "";
 
@@ -98,7 +101,7 @@ static err_t comtrade_cfg_write_digital_channel_line(FIL* f, comtrade_t* comtrad
 
     memset(&channel, 0x0, sizeof(comtrade_digital_channel_t));
 
-    comtrade->get_digital_channel(comtrade->osc_data, index, &channel);
+    comtrade->get_digital_channel(comtrade, index, &channel);
 
     const char* nullstr = "";
 
@@ -133,6 +136,9 @@ static err_t comtrade_cfg_write_channels_lines(FIL* f, comtrade_t* comtrade)
 
 static err_t comtrade_cfg_write_line_freq_line(FIL* f, comtrade_t* comtrade)
 {
+    // Буфер.
+    char ctrdbuf[COMTRADE_BUF_SIZE];
+
     if(iq15_tostr(ctrdbuf, COMTRADE_BUF_SIZE, comtrade->lf) > 0){
         f_puts(ctrdbuf, f);
         if(f_error(f)) return E_IO_ERROR;
@@ -148,11 +154,14 @@ static err_t comtrade_cfg_write_rate_line(FIL* f, comtrade_t* comtrade, size_t i
 {
     if(!comtrade->get_sample_rate) return E_NULL_POINTER;
 
+    // Буфер.
+    char ctrdbuf[COMTRADE_BUF_SIZE];
+
     comtrade_sample_rate_t rate;
 
     memset(&rate, 0x0, sizeof(comtrade_sample_rate_t));
 
-    comtrade->get_sample_rate(comtrade->osc_data, index, &rate);
+    comtrade->get_sample_rate(comtrade, index, &rate);
 
     if(iq15_tostr(ctrdbuf, COMTRADE_BUF_SIZE, rate.samp) > 0){
         f_puts(ctrdbuf, f);
@@ -282,6 +291,9 @@ err_t comtrade_append_dat(FIL* f, comtrade_t* comtrade, uint32_t sample_index, u
     UINT written;
     FRESULT fres = FR_OK;
 
+    // Буфер.
+    char ctrdbuf[COMTRADE_BUF_SIZE];
+
     char* buf = &ctrdbuf[0];
 
     ((uint32_t*)buf)[0] = sample_index + 1;
@@ -296,7 +308,7 @@ err_t comtrade_append_dat(FIL* f, comtrade_t* comtrade, uint32_t sample_index, u
     value = 0;
     size_t i;
     for(i = 0; i < comtrade->analog_channels; i ++){
-        value = comtrade->get_analog_channel_value(comtrade->osc_data, i, sample_index);
+        value = comtrade->get_analog_channel_value(comtrade, i, sample_index);
 
         fres = f_write(f, &value, sizeof(int16_t), &written);
         if(fres != FR_OK || written != sizeof(int16_t)) return E_IO_ERROR;
@@ -306,7 +318,7 @@ err_t comtrade_append_dat(FIL* f, comtrade_t* comtrade, uint32_t sample_index, u
     value = 0;
     size_t bit = 0;
     for(i = 0; i < comtrade->digital_channels; i ++){
-        if(comtrade->get_digital_channel_value(comtrade->osc_data, i, sample_index)){
+        if(comtrade->get_digital_channel_value(comtrade, i, sample_index)){
             value |= (1 << bit);
         }
 
@@ -327,5 +339,22 @@ err_t comtrade_append_dat(FIL* f, comtrade_t* comtrade, uint32_t sample_index, u
     }
 
     return E_NO_ERROR;
+}
+
+size_t comtrade_dat_record_size(comtrade_t* comtrade)
+{
+    // Индекс и отметка времени.
+    size_t index_size = sizeof(uint32_t) + sizeof(uint32_t);
+
+    // Аналоговые каналы.
+    size_t analog_size = comtrade->analog_channels * sizeof(int16_t);
+
+    // Цифровые каналы.
+    // В 16 битных значениях.
+    size_t digital_size = (comtrade->digital_channels + (16 - 1)) / 16;
+    // В байтах.
+    digital_size *= 2;
+
+    return index_size + analog_size + digital_size;
 }
 

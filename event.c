@@ -335,12 +335,13 @@ static err_t event_csv_write_file(FIL* f, struct tm* ev_tm, event_t* event, osc_
  * @param event Событие.
  * @return Код ошибки.
  */
-static err_t event_csv_write(event_t* event)
+static err_t event_csv_write(FIL* filevar, event_t* event)
 {
+    if(filevar == NULL) return E_NULL_POINTER;
     if(event == NULL) return E_NULL_POINTER;
+    FIL* f = filevar;
 
     err_t err = E_NO_ERROR;
-    FIL f;
     FRESULT fr = FR_OK;
     struct tm* ev_tm = localtime(&event->time.tv_sec);
 
@@ -350,14 +351,14 @@ static err_t event_csv_write(event_t* event)
             ev_tm->tm_mday, ev_tm->tm_mon, ev_tm->tm_year + 1900,
             ev_tm->tm_hour, ev_tm->tm_min, ev_tm->tm_sec);
 
-    fr = f_open(&f, evbuf, FA_WRITE | FA_CREATE_ALWAYS);
+    fr = f_open(f, evbuf, FA_WRITE | FA_CREATE_ALWAYS);
     if(fr != FR_OK) return E_IO_ERROR;
 
     osc_t* osc = oscs_get_osc();
 
-    err = event_csv_write_file(&f, ev_tm, event, osc, osc_current_buffer(osc));
+    err = event_csv_write_file(f, ev_tm, event, osc, osc_current_buffer(osc));
 
-    f_close(&f);
+    f_close(f);
 
     return err;
 }
@@ -367,9 +368,9 @@ static err_t event_csv_write(event_t* event)
  * @param index Индекс аналогового канала.
  * @param channel Данные о канале.
  */
-static void comtrade_get_analog_channel(comtrade_osc_data_t osc_data, size_t index, comtrade_analog_channel_t* channel)
+static void comtrade_get_analog_channel(comtrade_t* comtrade, size_t index, comtrade_analog_channel_t* channel)
 {
-    osc_t* osc = (osc_t*)osc_data;
+    osc_t* osc = (osc_t*)comtrade->osc_data;
 
     size_t ch_index = osc_analog_channel_index(osc, index);
     if(ch_index == OSC_INDEX_INVALID) return;
@@ -393,9 +394,9 @@ static void comtrade_get_analog_channel(comtrade_osc_data_t osc_data, size_t ind
  * @param index Индекс цифрового канала.
  * @param channel Данные о канале.
  */
-static void comtrade_get_digital_channel(comtrade_osc_data_t osc_data, size_t index, comtrade_digital_channel_t* channel)
+static void comtrade_get_digital_channel(comtrade_t* comtrade, size_t index, comtrade_digital_channel_t* channel)
 {
-    osc_t* osc = (osc_t*)osc_data;
+    osc_t* osc = (osc_t*)comtrade->osc_data;
 
     size_t ch_index = osc_digital_channel_index(osc, index);
     if(ch_index == OSC_INDEX_INVALID) return;
@@ -411,10 +412,10 @@ static void comtrade_get_digital_channel(comtrade_osc_data_t osc_data, size_t in
  * @param index Индекс частоты дискретизации.
  * @param rate Данные о частоте дискретизации.
  */
-static void comtrade_get_sample_rate(comtrade_osc_data_t osc_data, size_t index, comtrade_sample_rate_t* rate)
+static void comtrade_get_sample_rate(comtrade_t* comtrade, size_t index, comtrade_sample_rate_t* rate)
 {
-    osc_t* osc = (osc_t*)osc_data;
-    size_t buf = osc_current_buffer(osc);
+    osc_t* osc = (osc_t*)comtrade->osc_data;
+    size_t buf = (size_t)comtrade->user_data;
 
     (void) index;
 
@@ -428,10 +429,12 @@ static void comtrade_get_sample_rate(comtrade_osc_data_t osc_data, size_t index,
  * @param sample Номер семпла канала.
  * @return Значение канала.
  */
-static int16_t comtrade_get_analog_channel_value(comtrade_osc_data_t osc_data, size_t index, size_t sample)
+static int16_t comtrade_get_analog_channel_value(comtrade_t* comtrade, size_t index, size_t sample)
 {
-    osc_t* osc = (osc_t*)osc_data;
-    size_t buf = osc_current_buffer(osc);
+    osc_t* osc = (osc_t*)comtrade->osc_data;
+    size_t buf = (size_t)comtrade->user_data;
+
+    if(buf == OSC_INDEX_INVALID) return COMTRADE_UNKNOWN_VALUE;
 
     size_t ch_index = osc_analog_channel_index(osc, index);
     if(ch_index == OSC_INDEX_INVALID) return COMTRADE_UNKNOWN_VALUE;
@@ -446,10 +449,12 @@ static int16_t comtrade_get_analog_channel_value(comtrade_osc_data_t osc_data, s
  * @param sample Номер семпла канала.
  * @return Значение канала.
  */
-static bool comtrade_get_digital_channel_value(comtrade_osc_data_t osc_data, size_t index, size_t sample)
+static bool comtrade_get_digital_channel_value(comtrade_t* comtrade, size_t index, size_t sample)
 {
-    osc_t* osc = (osc_t*)osc_data;
-    size_t buf = osc_current_buffer(osc);
+    osc_t* osc = (osc_t*)comtrade->osc_data;
+    size_t buf = (size_t)comtrade->user_data;
+
+    if(buf == OSC_INDEX_INVALID) return COMTRADE_UNKNOWN_VALUE;
 
     size_t ch_index = osc_digital_channel_index(osc, index);
     if(ch_index == OSC_INDEX_INVALID) return COMTRADE_UNKNOWN_VALUE;
@@ -464,11 +469,12 @@ static bool comtrade_get_digital_channel_value(comtrade_osc_data_t osc_data, siz
  * @param comtrade Структура COMTRADE.
  * @return Код ошибки.
  */
-static err_t event_ctrd_write_cfg(event_t* event, comtrade_t* comtrade)
+static err_t event_ctrd_write_cfg(FIL* filevar, event_t* event, comtrade_t* comtrade)
 {
     err_t err = E_NO_ERROR;
-    FIL f;
     FRESULT fr = FR_OK;
+    FIL* f = filevar;
+
     struct tm* ev_tm = localtime(&event->time.tv_sec);
     if(ev_tm == NULL) return E_INVALID_VALUE;
 
@@ -476,21 +482,22 @@ static err_t event_ctrd_write_cfg(event_t* event, comtrade_t* comtrade)
             ev_tm->tm_mday, ev_tm->tm_mon, ev_tm->tm_year + 1900,
             ev_tm->tm_hour, ev_tm->tm_min, ev_tm->tm_sec);
 
-    fr = f_open(&f, evbuf, FA_WRITE | FA_CREATE_ALWAYS);
+    fr = f_open(f, evbuf, FA_WRITE | FA_CREATE_ALWAYS);
     if(fr != FR_OK) return E_IO_ERROR;
 
-    err = comtrade_write_cfg(&f, comtrade);
+    err = comtrade_write_cfg(f, comtrade);
 
-    f_close(&f);
+    f_close(f);
 
     return err;
 }
 
-static err_t event_ctrd_write_dat(event_t* event, comtrade_t* comtrade)
+static err_t event_ctrd_write_dat(FIL* filevar, event_t* event, comtrade_t* comtrade)
 {
     err_t err = E_NO_ERROR;
-    FIL f;
     FRESULT fr = FR_OK;
+    FIL* f = filevar;
+
     struct tm* ev_tm = localtime(&event->time.tv_sec);
 
     if(ev_tm == NULL) return E_INVALID_VALUE;
@@ -499,7 +506,7 @@ static err_t event_ctrd_write_dat(event_t* event, comtrade_t* comtrade)
             ev_tm->tm_mday, ev_tm->tm_mon, ev_tm->tm_year + 1900,
             ev_tm->tm_hour, ev_tm->tm_min, ev_tm->tm_sec);
 
-    fr = f_open(&f, evbuf, FA_WRITE | FA_CREATE_ALWAYS);
+    fr = f_open(f, evbuf, FA_WRITE | FA_CREATE_ALWAYS);
     if(fr != FR_OK) return E_IO_ERROR;
 
     osc_t* osc = (osc_t*)comtrade->osc_data;
@@ -508,17 +515,18 @@ static err_t event_ctrd_write_dat(event_t* event, comtrade_t* comtrade)
     size_t samples_count = osc_buffer_samples_count(osc, buf);
     size_t nsample;
     for(nsample = 0; nsample < samples_count; nsample ++){
-        err = comtrade_append_dat(&f, comtrade, nsample, nsample);
+        err = comtrade_append_dat(f, comtrade, nsample, nsample);
         if(err != E_NO_ERROR) break;
     }
 
-    f_close(&f);
+    f_close(f);
 
     return err;
 }
 
-err_t event_ctrd_write(event_t* event)
+err_t event_ctrd_write(FIL* filevar, event_t* event)
 {
+    if(filevar == NULL) return E_NULL_POINTER;
     if(event == NULL) return E_NULL_POINTER;
 
     err_t err = E_NO_ERROR;
@@ -558,26 +566,27 @@ err_t event_ctrd_write(event_t* event)
     comtrade.get_digital_channel_value = comtrade_get_digital_channel_value;
 
     comtrade.osc_data = osc;
+    comtrade.user_data = (void*)buf;
 
     err = E_NO_ERROR;
 
-    err = event_ctrd_write_cfg(event, &comtrade);
+    err = event_ctrd_write_cfg(filevar, event, &comtrade);
     if(err != E_NO_ERROR) return err;
 
-    err = event_ctrd_write_dat(event, &comtrade);
+    err = event_ctrd_write_dat(filevar, event, &comtrade);
     if(err != E_NO_ERROR) return err;
 
     return E_NO_ERROR;
 }
 
-err_t event_write(event_t* event)
+err_t event_write(FIL* filevar, event_t* event)
 {
     err_t err = E_NO_ERROR;
 
-    err = event_csv_write(event);
+    err = event_csv_write(filevar, event);
     if(err != E_NO_ERROR) return err;
 
-    err = event_ctrd_write(event);
+    err = event_ctrd_write(filevar, event);
 
     return err;
 }

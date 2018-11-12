@@ -11,6 +11,7 @@
 typedef struct _Din_Channel {
 	GPIO_TypeDef* gpio; //!< GPIO.
 	gpio_pin_t pin; //!< Пин.
+	din_mode_t mode; //!< Режим.
 	din_type_t type; //!< Тип.
 	q15_t time; //!< Время для изменения, доли секунды.
 	char name[DIO_NAME_BUF_SIZE]; //!< Имя цифрового входа.
@@ -42,9 +43,9 @@ ALWAYS_INLINE static din_state_t din_channel_state_inst(din_channel_t* channel)
 	if(channel->gpio == NULL || channel->pin == 0) return DIN_OFF;
 
 	if(gpio_input_state(channel->gpio, channel->pin) == GPIO_STATE_ON){
-		return (channel->type == DIN_NORMAL) ? DIN_ON : DIN_OFF;
+		return (channel->mode == DIN_NORMAL) ? DIN_ON : DIN_OFF;
 	}
-	return (channel->type == DIN_NORMAL) ? DIN_OFF : DIN_ON;
+	return (channel->mode == DIN_NORMAL) ? DIN_OFF : DIN_ON;
 }
 
 
@@ -68,15 +69,16 @@ err_t din_channel_init(size_t n, GPIO_TypeDef* gpio, gpio_pin_t pin)
 	return E_NO_ERROR;
 }
 
-err_t din_channel_setup(size_t n, din_type_t type, q15_t time, const char* name)
+err_t din_channel_setup(size_t n, din_mode_t mode, din_type_t type, q15_t time, const char* name)
 {
 	if(n >= DIN_COUNT) return E_OUT_OF_RANGE;
 	if(time <= 0) return E_INVALID_VALUE;
 
 	din_channel_t* channel = din_channel(n);
 
-	channel->type = type;
+	channel->mode = mode;
 	channel->time = time;
+	channel->type = type;
 
 	if(name){
         size_t len = strlen(name);
@@ -129,6 +131,22 @@ din_state_t din_state(size_t n)
 	return channel->state;
 }
 
+din_state_t din_type_state(din_type_t type)
+{
+    din_channel_t* channel = NULL;
+
+    size_t i;
+    for(i = 0; i < DIN_COUNT; i ++){
+        channel = din_channel(i);
+
+        if(channel->type != type) continue;
+
+        if(channel->state == DIN_ON) return DIN_ON;
+    }
+
+    return DIN_OFF;
+}
+
 bool din_changed(size_t n)
 {
 	if(n >= DIN_COUNT) return false;
@@ -136,6 +154,39 @@ bool din_changed(size_t n)
 	din_channel_t* channel = din_channel(n);
 
 	return channel->changed;
+}
+
+bool din_type_changed(din_type_t type)
+{
+    din_channel_t* channel = NULL;
+
+    size_t i;
+    for(i = 0; i < DIN_COUNT; i ++){
+        channel = din_channel(i);
+
+        if(channel->type != type) continue;
+
+        if(channel->changed) return true;
+    }
+
+    return false;
+}
+
+din_state_t din_type_changed_state(din_type_t type)
+{
+    din_channel_t* channel = NULL;
+
+    size_t i;
+    for(i = 0; i < DIN_COUNT; i ++){
+        channel = din_channel(i);
+
+        if(channel->type != type) continue;
+        if(!channel->changed) continue;
+
+        if(channel->state == DIN_ON) return DIN_ON;
+    }
+
+    return DIN_OFF;
 }
 
 const char* din_name(size_t n)

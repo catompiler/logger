@@ -132,13 +132,13 @@ ALWAYS_INLINE static void osc_buffer_count_inc(osc_t* osc, osc_buffer_t* buffer)
 //! Устанавливает индекс следующего буфера чтения.
 ALWAYS_INLINE static void osc_buffers_inc_get_index(osc_t* osc)
 {
-    osc->get_buf_index = osc_next_buffer_index(osc, osc->get_buf_index);
+    osc->get_buf_index = osc_buffer_index_next(osc, osc->get_buf_index);
 }
 
 //! Устанавливает индекс следующего буфера записи.
 ALWAYS_INLINE static void osc_buffers_inc_put_index(osc_t* osc)
 {
-    osc->put_buf_index = osc_next_buffer_index(osc, osc->put_buf_index);
+    osc->put_buf_index = osc_buffer_index_next(osc, osc->put_buf_index);
 }
 
 //! Получает данные канала в буфере.
@@ -275,7 +275,7 @@ static void osc_channel_put_value(osc_channel_t* channel, osc_buffer_t* buffer, 
  */
 static osc_value_t osc_channel_get_value_val(osc_t* osc, osc_channel_t* channel, osc_buffer_t* buffer, size_t index)
 {
-	if(index >= osc->samples) return 0;
+	if(index >= buffer->count) return 0;
 
 	osc_value_t* data = osc_channel_buffer_data(channel, buffer);
 
@@ -290,7 +290,7 @@ static osc_value_t osc_channel_get_value_val(osc_t* osc, osc_channel_t* channel,
  */
 static osc_value_t osc_channel_get_value_bit(osc_t* osc, osc_channel_t* channel, osc_buffer_t* buffer,  size_t index)
 {
-    if(index >= osc->samples) return 0;
+    if(index >= buffer->count) return 0;
 
 	size_t pos = index / OSC_BITS_PER_SAMPLE;
 	size_t bit = index % OSC_BITS_PER_SAMPLE;
@@ -495,6 +495,23 @@ static void osc_pause_full_buffer(osc_t* osc)
     }
 }
 
+static void osc_pause_next_buffer(osc_t* osc)
+{
+    size_t put_index = osc->put_buf_index;
+
+    osc_buffer_t* put_buf = osc_buffer(osc, put_index);
+
+    if(!put_buf->paused) return;
+
+    size_t next_put_index = osc_buffer_index_next(osc, put_index);
+
+    osc_buffer_t* next_put_buf = osc_buffer(osc, next_put_index);
+
+    if(next_put_buf->paused) return;
+
+    osc_buffers_inc_put_index(osc);
+}
+
 void osc_append(osc_t* osc)
 {
 	if(!osc->enabled) return;
@@ -522,6 +539,9 @@ void osc_append(osc_t* osc)
 
 	// При необходимости - остановим и переключим заполненный буфер.
 	osc_pause_full_buffer(osc);
+
+	// При заполнении и паузе буфера - переключиться на следующий буфер.
+	osc_pause_next_buffer(osc);
 
     // Текущий буфер вставки.
     buffer = osc_put_buffer(osc);
@@ -587,6 +607,10 @@ void osc_reset(osc_t* osc)
 	// Используемые каналы.
 	osc->enabled_channels = 0;
 
+	// Индексы буферов.
+	osc->get_buf_index = 0;
+	osc->put_buf_index = 0;
+
 	// Количество семплов в буферах данных.
 	osc->samples = 0;
 
@@ -597,6 +621,11 @@ void osc_reset(osc_t* osc)
     osc->pause_enabled = false;
     osc->pause_samples = 0;
     osc->pause_counter = 0;
+
+    // Расчётные при инициализации данные.
+    osc->enabled_channels = 0;
+    osc->analog_channels = 0;
+    osc->digital_channels = 0;
 }
 
 iq15_t osc_time(osc_t* osc)
@@ -638,7 +667,7 @@ size_t osc_next_buffer(osc_t* osc)
 
 size_t osc_next_buffer_index(osc_t* osc, size_t buf)
 {
-    return osc_buffer_index_next(osc, osc->get_buf_index);
+    return osc_buffer_index_next(osc, buf);
 }
 
 size_t osc_buffer_samples_count(osc_t* osc, size_t buf)
@@ -681,9 +710,11 @@ size_t osc_buffer_sample_number_index(osc_t* osc, size_t buf, size_t sample)
 
     osc_buffer_t* buffer = osc_buffer(osc, buf);
 
+    if(buffer->count < osc->samples) return sample;
+
     size_t index = sample + buffer->index;
 
-    if (index >= osc->samples) index -= osc->samples;
+    if (index >= buffer->count) index -= buffer->count;
 
     return index;
 }
@@ -769,10 +800,25 @@ void osc_pause(osc_t* osc, iq15_t time)
     lq15_t time_samples = iq15_imull(time, AIN_SAMPLE_FREQ);
     size_t samples = (size_t)IQ15_INT(time_samples);
 
-    timerclear(&buffer->end_time);
     osc->pause_counter = 0;
     osc->pause_samples = samples;
     osc->pause_enabled = true;
+}
+
+void osc_pause_current(osc_t* osc)
+{
+    osc_buffer_t* buffer = osc_buffer(osc, osc->put_buf_index);
+
+    if(buffer->paused) return;
+
+    osc->pause_counter = 0;
+    osc->pause_samples = 0;
+    osc->pause_enabled = true;
+}
+
+bool osc_pause_pending(osc_t* osc)
+{
+    return osc->pause_enabled;
 }
 
 err_t osc_sample_period(osc_t* osc, struct timeval* tv)
@@ -783,6 +829,11 @@ err_t osc_sample_period(osc_t* osc, struct timeval* tv)
     tv->tv_usec = AIN_SAMPLE_PERIOD_US * osc_rate(osc);
 
     return E_NO_ERROR;
+}
+
+iq15_t osc_sample_freq(osc_t* osc)
+{
+    return IQ15F(AIN_SAMPLE_FREQ, osc_rate(osc));
 }
 
 err_t osc_channel_set_enabled(osc_t* osc, size_t n, bool enabled)
@@ -861,7 +912,7 @@ size_t osc_channel_src_channel(osc_t* osc, size_t n)
 
 err_t osc_channel_init(osc_t* osc, size_t n, osc_src_t src, osc_type_t type, osc_src_type_t src_type, size_t src_channel)
 {
-	if(n >= osc->channels_count) return false;
+	if(n >= osc->channels_count) return E_OUT_OF_RANGE;
 
 	osc_channel_t* channel = osc_channel(osc, n);
 

@@ -21,6 +21,7 @@ typedef iq15_t mwin_sum_t;
 typedef struct _MWin {
     mwin_data_t* data; //!< Данные.
     size_t size; //!< Размер данных.
+    size_t count; //!< Число данных.
     size_t index; //!< Индекс.
     mwin_sum_t sum; //!< Сумма.
 } mwin_t;
@@ -65,6 +66,16 @@ ALWAYS_INLINE static mwin_sum_t mwin_sum(mwin_t* mwin)
 ALWAYS_INLINE static size_t mwin_size(mwin_t* mwin)
 {
     return mwin->size;
+}
+
+/**
+ * Получает число данных в скользящем окне.
+ * @param mwin Скользящее окно.
+ * @return Число данных в скользящем окне.
+ */
+ALWAYS_INLINE static size_t mwin_count(mwin_t* mwin)
+{
+    return mwin->count;
 }
 
 #endif /* MWIN_H_ */

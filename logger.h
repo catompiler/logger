@@ -24,7 +24,8 @@ typedef enum _Logger_State {
     LOGGER_STATE_NOINIT = 0, //!< Не инициализирован.
     LOGGER_STATE_RUN = 1, //!< Работа.
     LOGGER_STATE_EVENT = 2, //!< Обработка события.
-    LOGGER_STATE_ERROR = 3 //!< Ошибка.
+    LOGGER_STATE_ERROR = 3, //!< Ошибка.
+    LOGGER_STATE_HALT = 4 //!< Останов.
 } logger_state_t;
 
 

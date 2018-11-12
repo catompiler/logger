@@ -7,7 +7,8 @@
 typedef struct _Dout_Channel {
 	GPIO_TypeDef* gpio; //!< GPIO.
 	gpio_pin_t pin; //!< Пин.
-	dout_type_t type; //!< Тип.
+	dout_mode_t mode; //!< Режим.
+    dout_type_t type; //!< Тип.
 	dout_state_t state; //!< Состояние выхода.
 } dout_channel_t;
 
@@ -36,9 +37,9 @@ ALWAYS_INLINE static err_t dout_channel_set_state_inst(dout_channel_t* channel, 
 	gpio_state_t inst_state = GPIO_STATE_OFF;
 
 	if(state == DOUT_ON){
-		inst_state = (channel->type == DOUT_NORMAL) ? GPIO_STATE_ON : GPIO_STATE_OFF;
+		inst_state = (channel->mode == DOUT_NORMAL) ? GPIO_STATE_ON : GPIO_STATE_OFF;
 	}else{
-		inst_state = (channel->type == DOUT_NORMAL) ? GPIO_STATE_OFF : GPIO_STATE_ON;
+		inst_state = (channel->mode == DOUT_NORMAL) ? GPIO_STATE_OFF : GPIO_STATE_ON;
 	}
 
 	if(inst_state == GPIO_STATE_ON){
@@ -73,12 +74,13 @@ err_t dout_channel_init(size_t n, GPIO_TypeDef* gpio, gpio_pin_t pin)
 	return E_NO_ERROR;
 }
 
-err_t dout_channel_setup(size_t n, dout_type_t type)
+err_t dout_channel_setup(size_t n, dout_mode_t mode, dout_type_t type)
 {
 	if(n >= DOUT_COUNT) return E_OUT_OF_RANGE;
 
 	dout_channel_t* channel = dout_channel(n);
 
+	channel->mode = mode;
 	channel->type = type;
 
 	return E_NO_ERROR;
@@ -105,5 +107,17 @@ err_t dout_set_state(size_t n, dout_state_t state)
 	channel->state = state;
 
 	return E_NO_ERROR;
+}
+
+void dout_set_type_state(dout_type_t type, dout_state_t state)
+{
+    dout_channel_t* channel = NULL;
+
+    size_t i;
+    for(i = 0; i < DOUT_COUNT; i ++){
+        channel = dout_channel(i);
+
+        if(channel->type == type) channel->state = state;
+    }
 }
 

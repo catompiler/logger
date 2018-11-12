@@ -71,56 +71,59 @@ typedef struct _Comtrade_Sample_Rate {
 //! Тип данных осциллограммы комтрейд.
 typedef void* comtrade_osc_data_t;
 
+//! Тип комтрейда.
+typedef struct _Comtrade comtrade_t;
+
 /**
  * Каллбэк получения описания аналогового канала.
- * @param osc_data Данные осциллограммы.
+ * @param comtrade Комтрейд.
  * @param index Номер канала.
  * @param channel Описание канала.
  */
-typedef void (*comtrade_get_analog_channel_t)(comtrade_osc_data_t osc_data, size_t index, comtrade_analog_channel_t* channel);
+typedef void (*comtrade_get_analog_channel_t)(comtrade_t* comtrade, size_t index, comtrade_analog_channel_t* channel);
 
 /**
  * Каллбэк получения описания цифрового канала.
- * @param osc_data Данные осциллограммы.
+ * @param comtrade Комтрейд.
  * @param index Номер канала.
  * @param channel Описание канала.
  */
-typedef void (*comtrade_get_digital_channel_t)(comtrade_osc_data_t osc_data, size_t index, comtrade_digital_channel_t* channel);
+typedef void (*comtrade_get_digital_channel_t)(comtrade_t* comtrade, size_t index, comtrade_digital_channel_t* channel);
 
 /**
  * Каллбэк получения описания частоты дискретизации.
- * @param osc_data Данные осциллограммы.
+ * @param comtrade Комтрейд.
  * @param sample Номер частоты дискретизации.
  * @param rate Описание частота дискретизации.
  */
-typedef void (*comtrade_get_sample_rate_t)(comtrade_osc_data_t osc_data, size_t index, comtrade_sample_rate_t* rate);
+typedef void (*comtrade_get_sample_rate_t)(comtrade_t* comtrade, size_t index, comtrade_sample_rate_t* rate);
 
 
 /**
  * Каллбэк получения отметки времени семпла.
- * @param osc_data Данные осциллограммы.
+ * @param comtrade Комтрейд.
  * @param n Номер семпла.
  * @return Отметка времени.
  */
-//typedef uint32_t (*comtrade_get_sample_timestamp_t)(comtrade_osc_data_t osc_data, size_t n);
+//typedef uint32_t (*comtrade_get_sample_timestamp_t)(comtrade_t* comtrade, size_t n);
 
 /**
  * Каллбэк получения значения аналогового канала.
- * @param osc_data Данные осциллограммы.
+ * @param comtrade Комтрейд.
  * @param index Индекс канала.
  * @param sample Номер семпла.
  * @return Значение канала.
  */
-typedef int16_t (*comtrade_get_analog_channel_value_t)(comtrade_osc_data_t osc_data, size_t index, size_t sample);
+typedef int16_t (*comtrade_get_analog_channel_value_t)(comtrade_t* comtrade, size_t index, size_t sample);
 
 /**
  * Каллбэк получения значения цифрового канала.
- * @param osc_data Данные осциллограммы.
+ * @param comtrade Комтрейд.
  * @param index Индекс канала.
  * @param sample Номер семпла.
  * @return Значение канала.
  */
-typedef bool (*comtrade_get_digital_channel_value_t)(comtrade_osc_data_t osc_data, size_t index, size_t sample);
+typedef bool (*comtrade_get_digital_channel_value_t)(comtrade_t* comtrade, size_t index, size_t sample);
 
 
 //!< Структура COMTRADE.
@@ -142,6 +145,7 @@ typedef struct _Comtrade {
     uint32_t timemult; //!< Множитель отметки времени, мкс.
     // Данные COMTRADE.
     comtrade_osc_data_t osc_data; //!< Данные осциллограммы.
+    void* user_data; //!< Пользовательские данные.
     //comtrade_get_sample_timestamp_t get_sample_timestamp; //!< Получение отметки времени.
     comtrade_get_analog_channel_value_t get_analog_channel_value; //!< Получение значения аналогового канала.
     comtrade_get_digital_channel_value_t get_digital_channel_value; //!< Получение значения цифрового канала.
@@ -165,5 +169,11 @@ extern err_t comtrade_write_cfg(FIL* f, comtrade_t* comtrade);
  */
 extern err_t comtrade_append_dat(FIL* f, comtrade_t* comtrade, uint32_t sample_index, uint32_t timestamp);
 
+/**
+ * Получает размер записи данных в файле.
+ * @param comtrade Комтрейд.
+ * @return Размер записи.
+ */
+extern size_t comtrade_dat_record_size(comtrade_t* comtrade);
 
 #endif /* COMTRADE_H_ */

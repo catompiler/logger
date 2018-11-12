@@ -30,13 +30,14 @@
 #include "dio_upd.h"
 #include "storage.h"
 #include "oscs.h"
+#include "trends.h"
 #include <time.h>
 #include "utils/critical.h"
 
 
 // UART.
 // Буфер записи.
-#define USART_WRITE_BUF_SIZE 128
+#define USART_WRITE_BUF_SIZE 256
 static uint8_t usart_write_buf[USART_WRITE_BUF_SIZE];
 // Буфер чтения.
 #define USART_READ_BUF_SIZE 16
@@ -950,6 +951,11 @@ static void init_osc(void)
     oscs_init();
 }
 
+static void init_trend(void)
+{
+    trends_init();
+}
+
 static void init_trig(void)
 {
     trig_init();
@@ -1101,6 +1107,7 @@ int main(void)
     init_dio_upd();
     init_ain();
     init_osc();
+    init_trend();
     init_trig();
     init_conf();
     init_storage();
