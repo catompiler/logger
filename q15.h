@@ -424,7 +424,7 @@ ALWAYS_INLINE static lq15_t iq15_imull(iq15_t a, int32_t b)
 {
     register int64_t res;
 
-    res = a * b;
+    res = (int64_t)a * b;
 
     return res;
 }

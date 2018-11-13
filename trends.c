@@ -54,6 +54,16 @@ typedef enum _Trends_State {
     TRENDS_STATE_RUN = 1
 } trends_state_t;
 
+struct _Trends;
+
+//! Структура данных осциллограммы комтрейд.
+typedef struct _Trends_Osc_Data {
+    struct _Trends* trends; //!< Тренды.
+    osc_t* osc; //!< Осциллограмма.
+    size_t buf; //!< Буфер.
+    size_t start /*__attribute__((deprecated))*/; //!< Начальный индекс.
+    size_t count; //!< Количество.
+} trends_osc_data_t;
 
 //! Структура трендов.
 typedef struct _Trends {
@@ -79,6 +89,7 @@ typedef struct _Trends {
     // Данные задачи.
     FIL file; //!< Файл.
     comtrade_t comtrade; //!< Комтрейд.
+    trends_osc_data_t osc_data; //!< Данные комтрейд.
     char file_base_name[TRENDS_FILENAME_LEN]; //!< Имя файла.
     size_t samples; //!< Число семплов в текущем тренде.
     //struct timeval data_time; //!< Время первых данных в файле.
@@ -249,6 +260,9 @@ void trends_reset(void)
 {
     osc_reset(&trends.osc);
     edge_detect_reset(&trends.ed_buf_fill);
+    trends.need_sync = false;
+    trends.limit = 0;
+    trends.limit_samples = 0;
 }
 
 err_t trends_start(future_t* future)
@@ -309,8 +323,8 @@ static void trends_assert(bool value)
  */
 static void comtrade_get_analog_channel(comtrade_t* comtrade, size_t index, comtrade_analog_channel_t* channel)
 {
-    trends_t* trends = (trends_t*)comtrade->osc_data;
-    osc_t* osc = &trends->osc;
+    trends_osc_data_t* osc_data = (trends_osc_data_t*)comtrade->osc_data;
+    osc_t* osc = osc_data->osc;
 
     size_t ch_index = osc_analog_channel_index(osc, index);
     if(ch_index == OSC_INDEX_INVALID) return;
@@ -336,8 +350,8 @@ static void comtrade_get_analog_channel(comtrade_t* comtrade, size_t index, comt
  */
 static void comtrade_get_digital_channel(comtrade_t* comtrade, size_t index, comtrade_digital_channel_t* channel)
 {
-    trends_t* trends = (trends_t*)comtrade->osc_data;
-    osc_t* osc = &trends->osc;
+    trends_osc_data_t* osc_data = (trends_osc_data_t*)comtrade->osc_data;
+    osc_t* osc = osc_data->osc;
 
     size_t ch_index = osc_digital_channel_index(osc, index);
     if(ch_index == OSC_INDEX_INVALID) return;
@@ -355,14 +369,15 @@ static void comtrade_get_digital_channel(comtrade_t* comtrade, size_t index, com
  */
 static void comtrade_get_sample_rate(comtrade_t* comtrade, size_t index, comtrade_sample_rate_t* rate)
 {
-    trends_t* trends = (trends_t*)comtrade->osc_data;
-    osc_t* osc = &trends->osc;
-    size_t buf = (size_t)comtrade->user_data;
+    trends_osc_data_t* osc_data = (trends_osc_data_t*)comtrade->osc_data;
+    trends_t* trends = osc_data->trends;
+    osc_t* osc = osc_data->osc;
+    size_t count = osc_data->count;
 
     (void) index;
 
     rate->samp = IQ15(AIN_SAMPLE_FREQ) / osc_rate(osc);
-    rate->endsamp = trends->samples + osc_buffer_samples_count(osc, buf);
+    rate->endsamp = trends->samples + count;
 }
 
 /**
@@ -373,9 +388,10 @@ static void comtrade_get_sample_rate(comtrade_t* comtrade, size_t index, comtrad
  */
 static int16_t comtrade_get_analog_channel_value(comtrade_t* comtrade, size_t index, size_t sample)
 {
-    trends_t* trends = (trends_t*)comtrade->osc_data;
-    osc_t* osc = &trends->osc;
-    size_t buf = (size_t)comtrade->user_data;
+    trends_osc_data_t* osc_data = (trends_osc_data_t*)comtrade->osc_data;
+    trends_t* trends = osc_data->trends;
+    osc_t* osc = osc_data->osc;
+    size_t buf = osc_data->buf;
 
     //trends_assert(index < osc_analog_channels(osc));
     //trends_assert(buf != OSC_INDEX_INVALID);
@@ -397,9 +413,10 @@ static int16_t comtrade_get_analog_channel_value(comtrade_t* comtrade, size_t in
  */
 static bool comtrade_get_digital_channel_value(comtrade_t* comtrade, size_t index, size_t sample)
 {
-    trends_t* trends = (trends_t*)comtrade->osc_data;
-    osc_t* osc = &trends->osc;
-    size_t buf = (size_t)comtrade->user_data;
+    trends_osc_data_t* osc_data = (trends_osc_data_t*)comtrade->osc_data;
+    trends_t* trends = osc_data->trends;
+    osc_t* osc = osc_data->osc;
+    size_t buf = osc_data->buf;
 
     //trends_assert(index < osc_analog_channels(osc));
     //trends_assert(buf != OSC_INDEX_INVALID);
@@ -445,7 +462,13 @@ static void trends_task_init_comtrade(void)
     comtrade->get_analog_channel_value = comtrade_get_analog_channel_value;
     comtrade->get_digital_channel_value = comtrade_get_digital_channel_value;
 
-    comtrade->osc_data = (comtrade_osc_data_t)&trends;
+    trends.osc_data.trends = &trends;
+    trends.osc_data.osc = &trends.osc;
+    trends.osc_data.buf = 0;
+    trends.osc_data.start = 0;
+    trends.osc_data.count = 0;
+
+    comtrade->osc_data = (comtrade_osc_data_t)&trends.osc_data;
     comtrade->user_data = (void*)0;
 }
 
@@ -455,7 +478,8 @@ static err_t trends_task_ctrd_write_cfg(comtrade_t* comtrade)
     FRESULT fr = FR_OK;
     int res = 0;
 
-    trends_t* trends = (trends_t*)comtrade->osc_data;
+    trends_osc_data_t* osc_data = (trends_osc_data_t*)comtrade->osc_data;
+    trends_t* trends = osc_data->trends;
 
     char filename[TRENDS_FILENAME_LEN];
     res = snprintf(filename, TRENDS_FILENAME_LEN, "%s.cfg", trends->file_base_name);
@@ -478,7 +502,8 @@ static err_t trends_task_ctrd_write_dat(comtrade_t* comtrade)
     FRESULT fr = FR_OK;
     int res = 0;
 
-    trends_t* trends = (trends_t*)comtrade->osc_data;
+    trends_osc_data_t* osc_data = (trends_osc_data_t*)comtrade->osc_data;
+    trends_t* trends = osc_data->trends;
 
     char filename[TRENDS_FILENAME_LEN];
     res = snprintf(filename, TRENDS_FILENAME_LEN, "%s.dat", trends->file_base_name);
@@ -494,16 +519,15 @@ static err_t trends_task_ctrd_write_dat(comtrade_t* comtrade)
     fr = f_lseek(&trends->file, records_size);
     if(fr != FR_OK) return E_IO_ERROR;
 
-    osc_t* osc = &trends->osc;
-    size_t buf = (size_t)comtrade->user_data;
-
-    size_t samples_count = osc_buffer_samples_count(osc, buf);
+    //size_t start = osc_data->start;
+    size_t count = osc_data->count;
     size_t samples = trends->samples;
+
     size_t nsample;
     size_t sample_index = 0;
-    for(nsample = 0; nsample < samples_count; nsample ++){
+    for(nsample = 0; nsample < count; nsample ++){
 
-        sample_index = nsample + samples;
+        sample_index = /*start +*/ nsample + samples;
 
         err = comtrade_append_dat(&trends->file, comtrade, sample_index, sample_index);
         if(err != E_NO_ERROR) break;
@@ -514,9 +538,78 @@ static err_t trends_task_ctrd_write_dat(comtrade_t* comtrade)
     return err;
 }
 
+static err_t trends_task_write_osc_buf_part(osc_t* osc, size_t buf, size_t start, size_t count)
+{
+    // Если число семплов для записи равно нулю - нечего записывать.
+    if(count == 0) return E_NO_ERROR;
+
+    err_t err = E_NO_ERROR;
+
+    comtrade_t* comtrade = &trends.comtrade;
+
+    // Для первого блока данных получим время.
+    if(trends.samples == 0){
+        struct timeval tv;
+
+        err = osc_buffer_sample_time(osc, buf, start, &tv);
+        if(err != E_NO_ERROR) return E_INVALID_VALUE;
+
+        comtrade->trigger_time.tv_sec = tv.tv_sec;
+        comtrade->trigger_time.tv_usec = tv.tv_usec;
+
+        comtrade->data_time.tv_sec = tv.tv_sec;
+        comtrade->data_time.tv_usec = tv.tv_usec;
+    }
+
+    trends_osc_data_t* osc_data = (trends_osc_data_t*)comtrade->osc_data;
+    osc_data->buf = buf;
+    osc_data->start = start;
+    osc_data->count = count;
+
+    err = trends_task_ctrd_write_cfg(comtrade);
+    if(err != E_NO_ERROR) return err;
+
+    err = trends_task_ctrd_write_dat(comtrade);
+    if(err != E_NO_ERROR) return err;
+
+    trends.samples += count;
+
+    return E_NO_ERROR;
+}
+
+static void trends_task_new_file(void);
+
 static err_t trends_task_write_osc_buf(osc_t* osc, size_t buf)
 {
     err_t err = E_NO_ERROR;
+    size_t buf_count = osc_buffer_samples_count(osc, buf);
+
+    size_t start = 0;
+    size_t count = buf_count;
+
+    if(trends.limit_samples != TRENDS_LIMIT_SAMPLES_UNLIMIT){
+
+        if(trends.samples >= trends.limit_samples){
+            trends_task_new_file();
+        }
+
+        if((trends.samples + buf_count) >= trends.limit_samples){
+            start = 0;
+            count = trends.limit_samples - trends.samples;
+
+            err = trends_task_write_osc_buf_part(osc, buf, start, count);
+            if(err != E_NO_ERROR) return err;
+
+            start = count;
+            count = buf_count - count;
+
+            trends_task_new_file();
+        }
+    }
+
+    return trends_task_write_osc_buf_part(osc, buf, start, count);
+
+    /*err_t err = E_NO_ERROR;
 
     comtrade_t* comtrade = &trends.comtrade;
 
@@ -544,7 +637,7 @@ static err_t trends_task_write_osc_buf(osc_t* osc, size_t buf)
 
     trends.samples += osc_buffer_samples_count(osc, buf);
 
-    return E_NO_ERROR;
+    return E_NO_ERROR;*/
 }
 
 static void trends_task_make_file_base_name(void)

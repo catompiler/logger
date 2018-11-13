@@ -319,6 +319,16 @@ extern err_t osc_buffer_end_time(osc_t* osc, size_t buf, struct timeval* tv);
 extern err_t osc_buffer_start_time(osc_t* osc, size_t buf, struct timeval* tv);
 
 /**
+ * Получает время семпла осциллограммы в буфере.
+ * @param osc Осциллограмма.
+ * @param buf Буфер.
+ * @param sample Номер семпла.
+ * @param tv Время.
+ * @return Код ошибки.
+ */
+extern err_t osc_buffer_sample_time(osc_t* osc, size_t buf, size_t sample, struct timeval* tv);
+
+/**
  * Делает паузу записи осциллограммы в текущий буфер после
  * количества семплов, эквивалентное заданному времени.
  * @param osc Осциллограмма.

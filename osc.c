@@ -781,8 +781,44 @@ err_t osc_buffer_start_time(osc_t* osc, size_t buf, struct timeval* tv)
     size_t buf_samples = osc_buffer_samples_count(osc, buf);
 
     size_t i;
-    for(i = 0; i < buf_samples; i ++){
+    for(i = 1; i < buf_samples; i ++){
         timersub(&time_tv, &period_tv, &time_tv);
+    }
+
+    tv->tv_sec = time_tv.tv_sec;
+    tv->tv_usec = time_tv.tv_usec;
+
+    return E_NO_ERROR;
+}
+
+err_t osc_buffer_sample_time(osc_t* osc, size_t buf, size_t sample, struct timeval* tv)
+{
+    if(buf >= osc->buffers_count) return E_OUT_OF_RANGE;
+    if(!tv) return E_NULL_POINTER;
+
+    err_t err = E_NO_ERROR;
+
+    struct timeval time_tv;
+    err = osc_buffer_end_time(osc, buf, &time_tv);
+    if(err != E_NO_ERROR) return err;
+
+    struct timeval period_tv;
+    err = osc_sample_period(osc, &period_tv);
+    if(err != E_NO_ERROR) return err;
+
+    size_t buf_samples_count = osc_buffer_samples_count(osc, buf);
+
+    size_t sample_count = sample + 1;
+    size_t i;
+
+    if(sample_count <= buf_samples_count){
+        for(i = sample_count; i < buf_samples_count; i ++){
+            timersub(&time_tv, &period_tv, &time_tv);
+        }
+    }else{
+        for(i = buf_samples_count; i < sample_count; i ++){
+            timeradd(&time_tv, &period_tv, &time_tv);
+        }
     }
 
     tv->tv_sec = time_tv.tv_sec;

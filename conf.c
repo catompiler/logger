@@ -362,6 +362,7 @@ static err_t conf_ini_read_trends(ini_t* ini, FIL* f)
     osc_src_type_t src_type;
     size_t src_channel;
     size_t rate;
+    size_t limit;
     bool enabled;
 
     osc_t* osc = trends_get_osc();
@@ -397,6 +398,9 @@ static err_t conf_ini_read_trends(ini_t* ini, FIL* f)
 
     err = osc_init_channels(osc, rate);
     if(err != E_NO_ERROR) return err;
+
+    limit = ini_valuei(ini, "trend", "limit", 0);
+    trends_set_limit(limit);
 
     enabled = ini_valuei(ini, "trend", "enabled", 0);
     if(f_error(f)) return E_IO_ERROR;
