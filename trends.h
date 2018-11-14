@@ -10,6 +10,8 @@
 #include "future/future.h"
 #include "q15.h"
 #include <stdbool.h>
+#include "fatfs/ff.h"
+
 
 //! Число семплов трендов.
 #define TRENDS_SAMPLES 4096
@@ -77,6 +79,30 @@ extern size_t trends_limit(void);
 extern void trends_set_limit(size_t limit);
 
 /**
+ * Получает время устаревания файлов.
+ * @return Время устаревания.
+ */
+extern size_t trends_outdate(void);
+
+/**
+ * Устанавливает время устаревания файлов.
+ * @param outdate Время устаревания файлов.
+ */
+extern void trends_set_outdate(size_t outdate);
+
+/**
+ * Получает интервал удаления устаревших файлов.
+ * @return Интервал удаления устаревших файлов.
+ */
+extern size_t trends_outdate_interval(void);
+
+/**
+ * Устанавливает интервал удаления устаревших файлов.
+ * @param interval Интервал удаления устаревших файлов.
+ */
+extern void trends_set_outdate_interval(size_t interval);
+
+/**
  * Получает флаг разрешения записи трендров.
  * @return Флаг разрешения записи трендров.
  */
@@ -119,5 +145,13 @@ extern err_t trends_sync(future_t* future);
  * @return Флаг записи трендов.
  */
 extern bool trends_running(void);
+
+/**
+ * Удаляет устаревшие файлы трендов.
+ * @param dir_var Переменная папки для использования.
+ * @param fno_var Переменная информации о файле для использования.
+ * @return Код ошибки.
+ */
+extern err_t trends_remove_outdated(DIR* dir_var, FILINFO* fno_var);
 
 #endif /* TRENDS_H_ */

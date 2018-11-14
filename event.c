@@ -348,7 +348,7 @@ static err_t event_csv_write(FIL* filevar, event_t* event)
     if(ev_tm == NULL) return E_INVALID_VALUE;
 
     snprintf(evbuf, EVENT_WRITE_BUF_SIZE, "event_%02d.%02d.%04d_%02d-%02d-%02d.csv",
-            ev_tm->tm_mday, ev_tm->tm_mon, ev_tm->tm_year + 1900,
+            ev_tm->tm_mday, ev_tm->tm_mon + 1, ev_tm->tm_year + 1900,
             ev_tm->tm_hour, ev_tm->tm_min, ev_tm->tm_sec);
 
     fr = f_open(f, evbuf, FA_WRITE | FA_CREATE_ALWAYS);
@@ -479,7 +479,7 @@ static err_t event_ctrd_write_cfg(FIL* filevar, event_t* event, comtrade_t* comt
     if(ev_tm == NULL) return E_INVALID_VALUE;
 
     snprintf(evbuf, EVENT_WRITE_BUF_SIZE, "event_%02d.%02d.%04d_%02d-%02d-%02d.cfg",
-            ev_tm->tm_mday, ev_tm->tm_mon, ev_tm->tm_year + 1900,
+            ev_tm->tm_mday, ev_tm->tm_mon + 1, ev_tm->tm_year + 1900,
             ev_tm->tm_hour, ev_tm->tm_min, ev_tm->tm_sec);
 
     fr = f_open(f, evbuf, FA_WRITE | FA_CREATE_ALWAYS);
@@ -503,7 +503,7 @@ static err_t event_ctrd_write_dat(FIL* filevar, event_t* event, comtrade_t* comt
     if(ev_tm == NULL) return E_INVALID_VALUE;
 
     snprintf(evbuf, EVENT_WRITE_BUF_SIZE, "event_%02d.%02d.%04d_%02d-%02d-%02d.dat",
-            ev_tm->tm_mday, ev_tm->tm_mon, ev_tm->tm_year + 1900,
+            ev_tm->tm_mday, ev_tm->tm_mon + 1, ev_tm->tm_year + 1900,
             ev_tm->tm_hour, ev_tm->tm_min, ev_tm->tm_sec);
 
     fr = f_open(f, evbuf, FA_WRITE | FA_CREATE_ALWAYS);

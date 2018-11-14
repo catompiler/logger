@@ -5,6 +5,7 @@
 #include "tasks_conf.h"
 #include <string.h>
 #include "conf.h"
+#include "trends.h"
 #include "utils/utils.h"
 #include "fatfs/ff.h"
 
@@ -34,6 +35,8 @@ typedef struct _Storage_Cmd {
 #define STORAGE_CMD_READ_CONF 0
 //! Запись события.
 #define STORAGE_CMD_WRITE_EVENT 1
+//! Удаление устаревших трендов.
+#define STORAGE_CMD_GC_TRENDS 2
 
 
 //! Структура логгера.
@@ -48,6 +51,8 @@ typedef struct _Storage {
     QueueHandle_t queue_handle; //!< Идентификатор очереди.
     // Общий файл для всех задачь доступа к хранилищу.
     FIL file; //!< Общий файл.
+    DIR dir; //!< Общая папка.
+    FILINFO fno; //!< Общая информаци о файле.
 } storage_t;
 
 //! Логгер.
@@ -103,6 +108,16 @@ static void storage_cmd_write_event(storage_cmd_t* cmd)
     if(cmd->future) future_finish(cmd->future, int_to_pvoid(err));
 }
 
+static void storage_cmd_gc_trends(storage_cmd_t* cmd)
+{
+    (void) cmd;
+
+    memset(&storage.dir, 0x0, sizeof(DIR));
+    memset(&storage.fno, 0x0, sizeof(FILINFO));
+
+    trends_remove_outdated(&storage.dir, &storage.fno);
+}
+
 static void storage_process_cmd(storage_cmd_t* cmd)
 {
 	switch(cmd->type){
@@ -112,6 +127,9 @@ static void storage_process_cmd(storage_cmd_t* cmd)
 	case STORAGE_CMD_WRITE_EVENT:
 		storage_cmd_write_event(cmd);
 		break;
+	case STORAGE_CMD_GC_TRENDS:
+	    storage_cmd_gc_trends(cmd);
+	    break;
 	}
 }
 
@@ -170,6 +188,20 @@ err_t storage_write_event(future_t* future, event_t* event)
 	}
 
 	return E_NO_ERROR;
+}
+
+err_t storage_remove_outdated_trends(void)
+{
+    storage_cmd_t cmd;
+
+    cmd.type = STORAGE_CMD_GC_TRENDS;
+    cmd.future = NULL;
+
+    if(xQueueSendToBack(storage.queue_handle, &cmd, STORAGE_QUEUE_DELAY) != pdTRUE){
+        return E_OUT_OF_MEMORY;
+    }
+
+    return E_NO_ERROR;
 }
 
 

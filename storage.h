@@ -32,5 +32,10 @@ extern err_t storage_read_conf(future_t* future);
  */
 extern err_t storage_write_event(future_t* future, event_t* event);
 
+/**
+ * Удаляет устаревшие файлы трендов.
+ * @return Удаляет устаревшие файлы трендов.
+ */
+extern err_t storage_remove_outdated_trends(void);
 
 #endif /* STORAGE_H_ */

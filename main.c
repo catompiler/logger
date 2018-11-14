@@ -32,6 +32,7 @@
 #include "oscs.h"
 #include "trends.h"
 #include <time.h>
+#include "fattime.h"
 #include "utils/critical.h"
 
 
@@ -514,24 +515,8 @@ void init_rtc(void)
 DWORD get_fattime(void)
 {
     time_t t = time(NULL);
-    struct tm* lt = localtime(&t);
 
-    if(lt == NULL) return 0;
-
-    DWORD ft = 0;
-
-    if(lt->tm_year < 80){
-        lt->tm_year = 80;
-    }
-
-    ft |= (lt->tm_sec / 2)   << 0;
-    ft |= (lt->tm_min) 	     << 5;
-    ft |= (lt->tm_hour)      << 11;
-    ft |= (lt->tm_mday)      << 16;
-    ft |= (lt->tm_mon)       << 21;
-    ft |= (lt->tm_year - 80) << 25;
-
-    return ft;
+    return fattime_from_time(&t);
 }
 
 // 12800 Hz.

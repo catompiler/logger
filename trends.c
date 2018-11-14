@@ -4,6 +4,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
+#include "timers.h"
 #include "tasks_conf.h"
 #include "logger.h"
 #include "ain.h"
@@ -13,6 +14,9 @@
 #include "utils/utils.h"
 #include "edge_detect.h"
 #include <sys/time.h>
+#include <time.h>
+#include "fattime.h"
+#include "storage.h"
 
 
 //! Размер очереди.
@@ -20,6 +24,11 @@
 
 //! Ожидание помещения в очередь.
 #define TRENDS_QUEUE_DELAY portMAX_DELAY
+
+//! Период таймера.
+#define TRENDS_TIMER_PERIOD_S 1
+#define TRENDS_TIMER_PERIOD_MS (TRENDS_TIMER_PERIOD_S * 1000)
+#define TRENDS_TIMER_PERIOD_TICKS (pdMS_TO_TICKS(TRENDS_TIMER_PERIOD_MS))
 
 //! Размер буфера для записи файла.
 #define TRENDS_BUF_SIZE 32
@@ -75,6 +84,9 @@ typedef struct _Trends {
     trends_cmd_t queue_storage[TRENDS_QUEUE_SIZE]; //!< Данные очереди.
     StaticQueue_t queue_buffer; //!< Буфер очереди.
     QueueHandle_t queue_handle; //!< Идентификатор очереди.
+    // Таймер.
+    StaticTimer_t timer_buffer; //!< Буфер таймера.
+    TimerHandle_t timer_handle; //!< Идентификатор таймера.
     // Данные.
     osc_value_t data[TRENDS_SAMPLES]; //!< Данные трендов.
     osc_buffer_t buffers[TRENDS_BUFFERS]; //!< Буферы трендов.
@@ -83,9 +95,11 @@ typedef struct _Trends {
     trends_state_t state; //!< Состояние.
     edge_detect_t ed_buf_fill; //!< Детектор момента заполнения буфера.
     bool need_sync; //!< Флаг необходимости синхронизации.
+    size_t outdate; //!< Время устаревания файлов трендов в секундах.
+    size_t outdate_interval; //!< Время удаления устаревших файлов в секундах.
+    size_t limit; //!< Лимит в секундах.
     // Обмен с задачей.
-    size_t limit; //!< Лимит.
-    size_t limit_samples; //!< Лимит тренда в одном файле.
+    size_t limit_samples; //!< Лимит тренда в одном файле в семплах.
     // Данные задачи.
     FIL file; //!< Файл.
     comtrade_t comtrade; //!< Комтрейд.
@@ -93,6 +107,8 @@ typedef struct _Trends {
     char file_base_name[TRENDS_FILENAME_LEN]; //!< Имя файла.
     size_t samples; //!< Число семплов в текущем тренде.
     //struct timeval data_time; //!< Время первых данных в файле.
+    // Данные таймера.
+    size_t outdate_counter; //!< Счётчик до удаления старых трендов.
 } trends_t;
 
 //! Тренды.
@@ -136,6 +152,7 @@ static err_t trends_send_cmd_stop(future_t* future, TickType_t wait_ticks)
 }
 
 static void trends_task_proc(void*);
+static void trends_timer_proc(TimerHandle_t);
 static err_t trends_init_task(void)
 {
     trends.task_handle = xTaskCreateStatic(trends_task_proc, "trends_task",
@@ -149,6 +166,10 @@ static err_t trends_init_task(void)
     if(trends.queue_handle == NULL) return E_INVALID_VALUE;
 
     vQueueAddToRegistry(trends.queue_handle, "trends_queue");
+
+    trends.timer_handle = xTimerCreateStatic("trends_timer", TRENDS_TIMER_PERIOD_TICKS, 1, NULL,
+                                            trends_timer_proc, &trends.timer_buffer);
+    if(trends.timer_handle == NULL) return E_INVALID_VALUE;
 
     return E_NO_ERROR;
 }
@@ -246,6 +267,26 @@ void trends_set_limit(size_t limit)
     trends.limit_samples = samples;
 }
 
+size_t trends_outdate(void)
+{
+    return trends.outdate;
+}
+
+void trends_set_outdate(size_t outdate)
+{
+    trends.outdate = outdate;
+}
+
+size_t trends_outdate_interval(void)
+{
+    return trends.outdate_interval;
+}
+
+void trends_set_outdate_interval(size_t interval)
+{
+    trends.outdate_interval = interval;
+}
+
 bool trends_enabled(void)
 {
     return osc_enabled(&trends.osc);
@@ -263,6 +304,9 @@ void trends_reset(void)
     trends.need_sync = false;
     trends.limit = 0;
     trends.limit_samples = 0;
+    trends.outdate = 0;
+    trends.outdate_interval = 0;
+    trends.outdate_counter = 0;
 }
 
 err_t trends_start(future_t* future)
@@ -271,6 +315,10 @@ err_t trends_start(future_t* future)
 
     err = trends_send_cmd_start(future, TRENDS_QUEUE_DELAY);
     if(err != E_NO_ERROR) return err;
+
+    if(xTimerStart(trends.timer_handle, TRENDS_QUEUE_DELAY) != pdPASS){
+        return E_STATE;
+    }
 
     trends.state = TRENDS_STATE_RUN;
 
@@ -283,6 +331,10 @@ err_t trends_stop(future_t* future)
 
     err = trends_send_cmd_stop(future, TRENDS_QUEUE_DELAY);
     if(err != E_NO_ERROR) return err;
+
+    if(xTimerStop(trends.timer_handle, TRENDS_QUEUE_DELAY) != pdPASS){
+        return E_STATE;
+    }
 
     trends.state = TRENDS_STATE_IDLE;
 
@@ -608,36 +660,6 @@ static err_t trends_task_write_osc_buf(osc_t* osc, size_t buf)
     }
 
     return trends_task_write_osc_buf_part(osc, buf, start, count);
-
-    /*err_t err = E_NO_ERROR;
-
-    comtrade_t* comtrade = &trends.comtrade;
-
-    // Для первого блока данных получим время.
-    if(trends.samples == 0){
-        struct timeval tv;
-
-        err = osc_buffer_start_time(osc, buf, &tv);
-        if(err != E_NO_ERROR) return E_INVALID_VALUE;
-
-        comtrade->trigger_time.tv_sec = tv.tv_sec;
-        comtrade->trigger_time.tv_usec = tv.tv_usec;
-
-        comtrade->data_time.tv_sec = tv.tv_sec;
-        comtrade->data_time.tv_usec = tv.tv_usec;
-    }
-
-    comtrade->user_data = (void*) buf;
-
-    err = trends_task_ctrd_write_cfg(comtrade);
-    if(err != E_NO_ERROR) return err;
-
-    err = trends_task_ctrd_write_dat(comtrade);
-    if(err != E_NO_ERROR) return err;
-
-    trends.samples += osc_buffer_samples_count(osc, buf);
-
-    return E_NO_ERROR;*/
 }
 
 static void trends_task_make_file_base_name(void)
@@ -650,7 +672,7 @@ static void trends_task_make_file_base_name(void)
     if(t){
         snprintf(trends.file_base_name, TRENDS_FILENAME_LEN,
                 "trend_%02d.%02d.%04d_%02d-%02d-%02d",
-                t->tm_mday, t->tm_mon, t->tm_year + 1900,
+                t->tm_mday, t->tm_mon + 1, t->tm_year + 1900,
                 t->tm_hour, t->tm_min, t->tm_sec);
     }else{
         snprintf(trends.file_base_name, TRENDS_FILENAME_LEN,
@@ -695,7 +717,7 @@ static err_t trends_task_on_sync(void)
     err_t err = E_NO_ERROR;
     err_t res_err = E_NO_ERROR;
 
-    printf("%u sync\r\n", (unsigned int)xTaskGetTickCount());
+    //printf("%u sync\r\n", (unsigned int)xTaskGetTickCount());
 
     buf = osc_current_buffer(osc);
 
@@ -717,7 +739,7 @@ static void trends_task_process_cmd_start(trends_cmd_t* cmd)
 {
     err_t err = E_NO_ERROR;
 
-    printf("trends: start cmd\r\n");
+    //printf("trends: start cmd\r\n");
 
     trends_task_on_start();
 
@@ -730,7 +752,7 @@ static void trends_task_process_cmd_stop(trends_cmd_t* cmd)
 {
     err_t err = E_NO_ERROR;
 
-    printf("trends: stop cmd\r\n");
+    //printf("trends: stop cmd\r\n");
 
     trends_task_on_stop();
 
@@ -743,7 +765,7 @@ static void trends_task_process_cmd_sync(trends_cmd_t* cmd)
 {
     err_t err = E_NO_ERROR;
 
-    printf("trends: sync cmd\r\n");
+    //printf("trends: sync cmd\r\n");
 
     err = trends_task_on_sync();
 
@@ -782,6 +804,56 @@ static void trends_task_proc(void* arg)
             trends_task_process_cmd(&cmd);
         }
     }
+}
+
+static void trends_timer_proc(TimerHandle_t xTimer)
+{
+    // Если разрешено одаление старых трендов.
+    if(trends.outdate != 0){
+        // Если подошёл период удаления.
+        if(++ trends.outdate_counter >= trends.outdate_interval){
+            // Если удалось запустить процесс удаления.
+            if(storage_remove_outdated_trends() == E_NO_ERROR){
+                // Сбросим счётчик.
+                trends.outdate_counter = 0;
+            }
+        }
+    }
+}
+
+err_t trends_remove_outdated(DIR* dir_var, FILINFO* fno_var)
+{
+    if(dir_var == NULL) return E_NULL_POINTER;
+    if(fno_var == NULL) return E_NULL_POINTER;
+
+    time_t cur_time = time(NULL);
+    time_t file_time = 0;
+
+    FRESULT fr;
+    DIR* dir = dir_var;
+    FILINFO* fno = fno_var;
+    DWORD fdatetime = 0;
+
+    fr = f_findfirst(dir, fno, "", "trend_*.*");
+
+    while (fr == FR_OK && fno->fname[0]){
+        //printf("%s\r\n", fno->fname);
+
+        fdatetime = ((DWORD)fno->fdate << 16) | fno->ftime;
+        file_time = fattime_to_time(fdatetime, NULL);
+
+        if((file_time + trends.outdate) <= cur_time){
+            //printf("rm %s\r\n", fno->fname);
+
+            f_unlink(fno->fname);
+        }
+
+        fr = f_findnext(dir, fno);
+    }
+
+    f_closedir(dir);
+
+    return E_NO_ERROR;
 }
 
 

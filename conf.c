@@ -363,6 +363,8 @@ static err_t conf_ini_read_trends(ini_t* ini, FIL* f)
     size_t src_channel;
     size_t rate;
     size_t limit;
+    size_t outdate;
+    size_t cleanup;
     bool enabled;
 
     osc_t* osc = trends_get_osc();
@@ -401,6 +403,12 @@ static err_t conf_ini_read_trends(ini_t* ini, FIL* f)
 
     limit = ini_valuei(ini, "trend", "limit", 0);
     trends_set_limit(limit);
+
+    outdate = ini_valuei(ini, "trend", "outdate", 0);
+    trends_set_outdate(outdate);
+
+    cleanup = ini_valuei(ini, "trend", "cleanup", 60);
+    trends_set_outdate_interval(cleanup);
 
     enabled = ini_valuei(ini, "trend", "enabled", 0);
     if(f_error(f)) return E_IO_ERROR;
