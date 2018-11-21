@@ -70,7 +70,7 @@ typedef struct _Trends_Osc_Data {
     struct _Trends* trends; //!< Тренды.
     osc_t* osc; //!< Осциллограмма.
     size_t buf; //!< Буфер.
-    size_t start /*__attribute__((deprecated))*/; //!< Начальный индекс.
+    size_t start; //!< Начальный индекс.
     size_t count; //!< Количество.
 } trends_osc_data_t;
 
@@ -444,6 +444,7 @@ static int16_t comtrade_get_analog_channel_value(comtrade_t* comtrade, size_t in
     trends_t* trends = osc_data->trends;
     osc_t* osc = osc_data->osc;
     size_t buf = osc_data->buf;
+    size_t start = osc_data->start;
 
     //trends_assert(index < osc_analog_channels(osc));
     //trends_assert(buf != OSC_INDEX_INVALID);
@@ -453,8 +454,16 @@ static int16_t comtrade_get_analog_channel_value(comtrade_t* comtrade, size_t in
     size_t ch_index = osc_analog_channel_index(osc, index);
     if(ch_index == OSC_INDEX_INVALID) return COMTRADE_UNKNOWN_VALUE;
 
-    return osc_buffer_channel_value(osc, buf, ch_index,
-            osc_buffer_sample_number_index(osc, buf, sample - trends->samples));
+    size_t sample_index = sample - trends->samples + start;
+
+    //if(index == 1) return (int16_t)(sample_index);
+
+    osc_value_t value = osc_buffer_channel_value(osc, buf, ch_index,
+                            osc_buffer_sample_number_index(osc, buf, sample_index));
+
+    if(value == COMTRADE_UNKNOWN_VALUE) value = COMTRADE_DAT_MIN;
+
+    return value;
 }
 
 /**
@@ -469,6 +478,7 @@ static bool comtrade_get_digital_channel_value(comtrade_t* comtrade, size_t inde
     trends_t* trends = osc_data->trends;
     osc_t* osc = osc_data->osc;
     size_t buf = osc_data->buf;
+    size_t start = osc_data->start;
 
     //trends_assert(index < osc_analog_channels(osc));
     //trends_assert(buf != OSC_INDEX_INVALID);
@@ -478,8 +488,12 @@ static bool comtrade_get_digital_channel_value(comtrade_t* comtrade, size_t inde
     size_t ch_index = osc_digital_channel_index(osc, index);
     if(ch_index == OSC_INDEX_INVALID) return COMTRADE_UNKNOWN_VALUE;
 
-    return osc_buffer_channel_value(osc, buf, ch_index,
-            osc_buffer_sample_number_index(osc, buf, sample - trends->samples)) != 0;
+    size_t sample_index = sample - trends->samples + start;
+
+    osc_value_t value = osc_buffer_channel_value(osc, buf, ch_index,
+                            osc_buffer_sample_number_index(osc, buf, sample_index));
+
+    return value != 0;
 }
 
 static void trends_task_init_comtrade(void)
@@ -592,6 +606,9 @@ static err_t trends_task_ctrd_write_dat(comtrade_t* comtrade)
 
 static err_t trends_task_write_osc_buf_part(osc_t* osc, size_t buf, size_t start, size_t count)
 {
+    /*printf("samples %d write buf %d start %d count %d\r\n",
+            (int)trends.samples, (int)buf, (int)start, (int)count);*/
+
     // Если число семплов для записи равно нулю - нечего записывать.
     if(count == 0) return E_NO_ERROR;
 
@@ -641,19 +658,17 @@ static err_t trends_task_write_osc_buf(osc_t* osc, size_t buf)
 
     if(trends.limit_samples != TRENDS_LIMIT_SAMPLES_UNLIMIT){
 
-        if(trends.samples >= trends.limit_samples){
-            trends_task_new_file();
-        }
-
         if((trends.samples + buf_count) >= trends.limit_samples){
-            start = 0;
-            count = trends.limit_samples - trends.samples;
+            if(trends.limit_samples >= trends.samples){
+                start = 0;
+                count = trends.limit_samples - trends.samples;
 
-            err = trends_task_write_osc_buf_part(osc, buf, start, count);
-            if(err != E_NO_ERROR) return err;
+                err = trends_task_write_osc_buf_part(osc, buf, start, count);
+                if(err != E_NO_ERROR) return err;
 
-            start = count;
-            count = buf_count - count;
+                start = count;
+                count = buf_count - count;
+            }
 
             trends_task_new_file();
         }
@@ -722,11 +737,14 @@ static err_t trends_task_on_sync(void)
     buf = osc_current_buffer(osc);
 
     for(;;){
-        trends_task_wait_if_pause(osc);
+        //trends_task_wait_if_pause(osc);
         if(!osc_buffer_paused(osc, buf)) break;
 
         err = trends_task_write_osc_buf(osc, buf);
-        if(err != E_NO_ERROR) res_err = err;
+        if(err != E_NO_ERROR){
+            printf("write buf error %d\r\n", (int)err);
+            res_err = err;
+        }
 
         osc_buffer_resume(osc, buf);
         buf = osc_next_buffer(osc);

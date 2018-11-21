@@ -162,15 +162,19 @@ err_t trig_channel_reset(size_t n)
 	return E_NO_ERROR;
 }
 
-static void trig_channel_update_ref(trig_channel_t* channel)
+static void trig_channel_set_ref(trig_channel_t* channel, iq15_t value)
 {
     // Для аналоговых входов.
     if(channel->src == TRIG_AIN){
         // Необходимо преобразовать абсолютное значение
         iq15_t scale = ain_channel_real_k(channel->src_channel);
-        // в относительное.
-        channel->ref = iq15_divl(channel->ref, scale);
+        if(scale != 0){
+            // в относительное.
+            value = iq15_divl(value, scale);
+        }
     }
+
+    channel->ref = iq15_sat(value);
 }
 
 err_t trig_channel_init(size_t n, trig_init_t* init)
@@ -186,9 +190,9 @@ err_t trig_channel_init(size_t n, trig_init_t* init)
 	channel->src_type = init->src_type;
 	channel->type = init->type;
 	channel->time = init->time;
-	channel->ref = init->ref;
+	channel->ref = 0;
 
-	trig_channel_update_ref(channel);
+	trig_channel_set_ref(channel, init->ref);
 
 	if(init->name){
         size_t len = strlen(init->name);

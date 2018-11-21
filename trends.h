@@ -17,7 +17,7 @@
 #define TRENDS_SAMPLES 4096
 
 //! Число буферов трендов.
-#define TRENDS_BUFFERS 4
+#define TRENDS_BUFFERS 2
 
 //! Число трендов.
 #define TRENDS_CHANNELS 16

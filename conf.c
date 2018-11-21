@@ -464,7 +464,7 @@ static err_t conf_ini_read_trigs(ini_t* ini, FIL* f)
         if(f_error(f)) return E_IO_ERROR;
 
         time = q15_sat(time);
-        ref = q15_sat(ref);
+        //ref = q15_sat(ref);
 
         init.src = src;
         init.src_channel = src_channel;

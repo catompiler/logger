@@ -710,6 +710,8 @@ size_t osc_buffer_sample_number_index(osc_t* osc, size_t buf, size_t sample)
 
     osc_buffer_t* buffer = osc_buffer(osc, buf);
 
+    if(sample >= buffer->count) return OSC_INDEX_INVALID;
+
     if(buffer->count < osc->samples) return sample;
 
     size_t index = sample + buffer->index;
@@ -1200,6 +1202,8 @@ static size_t osc_channel_type_index(osc_t* osc, osc_type_t type, size_t n)
     size_t i;
     for(i = 0; i < osc->channels_count; i ++){
         channel = osc_channel(osc, i);
+
+        if(!channel->enabled) continue;
 
         if(channel->type == type){
             if(ch_cnt == n) return i;

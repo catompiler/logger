@@ -47,7 +47,7 @@ typedef struct _Trig_Init {
 	trig_src_type_t src_type; //!< Тип источника.
 	trig_type_t type; //!< Тип срабатывания.
 	q15_t time; //!< Время срабатывания, доли секунды.
-	trig_value_t ref; //!< Опорное значение.
+	iq15_t ref; //!< Опорное значение.
 	const char* name; //!< Имя триггера.
 } trig_init_t;
 

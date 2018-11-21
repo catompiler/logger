@@ -439,8 +439,12 @@ static int16_t comtrade_get_analog_channel_value(comtrade_t* comtrade, size_t in
     size_t ch_index = osc_analog_channel_index(osc, index);
     if(ch_index == OSC_INDEX_INVALID) return COMTRADE_UNKNOWN_VALUE;
 
-    return osc_buffer_channel_value(osc, buf, ch_index,
-            osc_buffer_sample_number_index(osc, buf, sample));
+    osc_value_t value = osc_buffer_channel_value(osc, buf, ch_index,
+                            osc_buffer_sample_number_index(osc, buf, sample));
+
+    if(value == COMTRADE_UNKNOWN_VALUE) value = COMTRADE_DAT_MIN;
+
+    return value;
 }
 
 /**
@@ -459,8 +463,10 @@ static bool comtrade_get_digital_channel_value(comtrade_t* comtrade, size_t inde
     size_t ch_index = osc_digital_channel_index(osc, index);
     if(ch_index == OSC_INDEX_INVALID) return COMTRADE_UNKNOWN_VALUE;
 
-    return osc_buffer_channel_value(osc, buf, ch_index,
-            osc_buffer_sample_number_index(osc, buf, sample)) != 0;
+    osc_value_t value = osc_buffer_channel_value(osc, buf, ch_index,
+                            osc_buffer_sample_number_index(osc, buf, sample));
+
+    return value != 0;
 }
 
 /**

@@ -28,7 +28,7 @@
 #define COMTRADE_DAT_MAX (32767)
 
 //! Несуществующее значние.
-#define COMTRADE_UNKNOWN_VALUE 0x8000
+#define COMTRADE_UNKNOWN_VALUE (-32768)
 
 //! Значение первичной величины.
 #define COMTRADE_PS_PRIMARY 'p'

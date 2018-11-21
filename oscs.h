@@ -11,7 +11,7 @@
 #include <stdbool.h>
 
 //! Число семплов осциллограмм.
-#define OSCS_SAMPLES 1024
+#define OSCS_SAMPLES 8192
 
 //! Число буферов осциллограмм.
 #define OSCS_BUFFERS 2
