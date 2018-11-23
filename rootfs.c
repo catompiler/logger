@@ -127,6 +127,9 @@ DRESULT rootfs_disk_read(BYTE pdrv, BYTE* buff, DWORD sector, UINT count)
         // Ошибка параметра - нет смысла повторять.
         if(res == RES_PARERR) break;
 
+        // Сброс диска.
+        if(diskfs->disk_reset) diskfs->disk_reset(diskfs->disk);
+
         // Если можно повторить.
         if(retries){
             retries --;
@@ -169,6 +172,9 @@ DRESULT rootfs_disk_write(BYTE pdrv, const BYTE* buff, DWORD sector, UINT count)
         if(res == RES_OK) break;
         // Ошибка параметра - нет смысла повторять.
         if(res == RES_PARERR) break;
+
+        // Сброс диска.
+        if(diskfs->disk_reset) diskfs->disk_reset(diskfs->disk);
 
         // Если можно повторить.
         if(retries){
@@ -214,6 +220,9 @@ DRESULT rootfs_disk_ioctl(BYTE pdrv, BYTE cmd, void* buff)
         if(res == RES_OK) break;
         // Ошибка параметра - нет смысла повторять.
         if(res == RES_PARERR) break;
+
+        // Сброс диска.
+        if(diskfs->disk_reset) diskfs->disk_reset(diskfs->disk);
 
         // Если можно повторить.
         if(retries){

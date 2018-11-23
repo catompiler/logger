@@ -22,6 +22,8 @@ typedef DRESULT (*rootfs_disk_read_t)(void* disk, BYTE* buff, DWORD sector, UINT
 typedef DRESULT (*rootfs_disk_write_t)(void* disk, const BYTE* buff, DWORD sector, UINT count);
 //! Тип функции управления диском.
 typedef DRESULT (*rootfs_disk_ioctl_t)(void* disk, BYTE cmd, void* buff);
+//! Тип функции сброса состояния диска.
+typedef DSTATUS (*rootfs_disk_reset_t)(void* disk);
 
 
 //! Тип структуры ФС диска.
@@ -37,6 +39,7 @@ typedef struct _DiskFS {
 	#if	_USE_IOCTL
 	rootfs_disk_ioctl_t disk_ioctl; //!< Управление диском.
 	#endif
+	rootfs_disk_reset_t disk_reset; //!< Сброс диска.
 	size_t retries; //!< Число повторений чтения диска.
 	size_t reinits; //!< Число переинициализаций диска после исчерпания повторных попыток.
 } diskfs_t;

@@ -911,6 +911,25 @@ static void init_sdcard(void)
     //sdcard_setup_diskio(&sdcard, 1);
 }
 
+static DSTATUS sdcard_disk_reset(sdcard_t* sdcard)
+{
+    if(sdcard == NULL) return RES_PARERR;
+
+    if(!sdcard_initialized(sdcard)) return RES_NOTRDY;
+
+    err_t err = E_NO_ERROR;
+
+    err = sdcard_select(sdcard);
+    if(err != E_NO_ERROR) return RES_ERROR;
+
+    err = sdcard_stop_transmission(sdcard);
+
+    sdcard_deselect(sdcard);
+    if(err != E_NO_ERROR) return RES_ERROR;
+
+    return RES_OK;
+}
+
 static void init_rootfs(void)
 {
     diskfs[0].disk = &sdcard;
@@ -919,6 +938,7 @@ static void init_rootfs(void)
     diskfs[0].disk_read = (rootfs_disk_read_t)sdcard_disk_read;
     diskfs[0].disk_write = (rootfs_disk_write_t)sdcard_disk_write;
     diskfs[0].disk_ioctl = (rootfs_disk_ioctl_t)sdcard_disk_ioctl;
+    diskfs[0].disk_reset = (rootfs_disk_reset_t)sdcard_disk_reset;
     diskfs[0].fatfs = &sdcard_fatfs;
     diskfs[0].retries = SDCARD_RETRIES;
     diskfs[0].reinits = SDCARD_REINITS;
