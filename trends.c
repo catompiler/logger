@@ -106,6 +106,7 @@ typedef struct _Trends {
     trends_osc_data_t osc_data; //!< Данные комтрейд.
     char file_base_name[TRENDS_FILENAME_LEN]; //!< Имя файла.
     size_t samples; //!< Число семплов в текущем тренде.
+    size_t timestamp; //!< Отметка времени последнего семпла в тренде.
     //struct timeval data_time; //!< Время первых данных в файле.
     // Данные таймера.
     size_t outdate_counter; //!< Счётчик до удаления старых трендов.
@@ -588,14 +589,17 @@ static err_t trends_task_ctrd_write_dat(comtrade_t* comtrade)
     //size_t start = osc_data->start;
     size_t count = osc_data->count;
     size_t samples = trends->samples;
+    size_t time = trends->timestamp;
 
+    size_t timestamp;
     size_t nsample;
     size_t sample_index = 0;
     for(nsample = 0; nsample < count; nsample ++){
 
         sample_index = /*start +*/ nsample + samples;
+        timestamp = nsample + time;
 
-        err = comtrade_append_dat(&trends->file, comtrade, sample_index, sample_index);
+        err = comtrade_append_dat(&trends->file, comtrade, sample_index, timestamp);
         if(err != E_NO_ERROR) break;
     }
 
@@ -664,7 +668,12 @@ static err_t trends_task_write_osc_buf(osc_t* osc, size_t buf)
                 count = trends.limit_samples - trends.samples;
 
                 err = trends_task_write_osc_buf_part(osc, buf, start, count);
-                if(err != E_NO_ERROR) return err;
+                if(err != E_NO_ERROR){
+                    trends.timestamp += buf_count;
+                    return err;
+                }
+
+                trends.timestamp += count;
 
                 start = count;
                 count = buf_count - count;
@@ -674,7 +683,11 @@ static err_t trends_task_write_osc_buf(osc_t* osc, size_t buf)
         }
     }
 
-    return trends_task_write_osc_buf_part(osc, buf, start, count);
+    err = trends_task_write_osc_buf_part(osc, buf, start, count);
+
+    trends.timestamp += count;
+
+    return err;
 }
 
 static void trends_task_make_file_base_name(void)
@@ -706,8 +719,8 @@ static void trends_task_reset_data(void)
 static void trends_task_new_file(void)
 {
     trends_task_reset_data();
-    trends_task_make_file_base_name();
     trends_task_init_comtrade();
+    trends_task_make_file_base_name();
 }
 
 static void trends_task_on_start(void)
