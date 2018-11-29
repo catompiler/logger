@@ -732,10 +732,13 @@ static void trends_task_on_stop(void)
 {
 }
 
-static void trends_task_wait_if_pause(osc_t* osc)
+static void trends_task_wait_if_pause(osc_t* osc, size_t buf)
 {
     // Подождать ожидающейся паузы.
-    WAIT_WHILE_TRUE(osc_pause_pending(osc));
+    for(;;){
+        if(osc_buffer_paused(osc, buf)) break;
+        if(!osc_pause_pending(osc)) break;
+    }
 }
 
 static err_t trends_task_on_sync(void)
@@ -750,7 +753,7 @@ static err_t trends_task_on_sync(void)
     buf = osc_current_buffer(osc);
 
     for(;;){
-        //trends_task_wait_if_pause(osc);
+        trends_task_wait_if_pause(osc, buf);
         if(!osc_buffer_paused(osc, buf)) break;
 
         err = trends_task_write_osc_buf(osc, buf);
@@ -865,10 +868,14 @@ err_t trends_remove_outdated(DIR* dir_var, FILINFO* fno_var)
     FILINFO* fno = fno_var;
     DWORD fdatetime = 0;
 
+    if(trends.state != TRENDS_STATE_RUN) return E_NO_ERROR;
+
     fr = f_findfirst(dir, fno, "", "trend_*.*");
 
     while (fr == FR_OK && fno->fname[0]){
         //printf("%s\r\n", fno->fname);
+
+        if(trends.state != TRENDS_STATE_RUN) break;
 
         fdatetime = ((DWORD)fno->fdate << 16) | fno->ftime;
         file_time = fattime_to_time(fdatetime, NULL);
