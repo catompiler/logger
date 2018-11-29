@@ -33,6 +33,30 @@ static void rootfs_make_disk_path(char* path, size_t path_len, size_t n)
 	snprintf(path, path_len, "%u:", n);
 }
 
+//! Монтирует диск.
+static err_t rootfs_mount_disk(BYTE pdrv, diskfs_t* diskfs)
+{
+    char disk_path[ROOTFS_DISK_PATH_LEN];
+
+    rootfs_make_disk_path(disk_path, ROOTFS_DISK_PATH_LEN, pdrv);
+
+    if(f_mount(diskfs->fatfs, disk_path, 0) != FR_OK) return E_INVALID_VALUE;
+
+    return E_NO_ERROR;
+}
+
+//! Размонтирует диск.
+static err_t rootfs_umount_disk(BYTE pdrv)
+{
+    char disk_path[ROOTFS_DISK_PATH_LEN];
+
+    rootfs_make_disk_path(disk_path, ROOTFS_DISK_PATH_LEN, pdrv);
+
+    if(f_mount(NULL, disk_path, 0) != FR_OK) return E_INVALID_VALUE;
+
+    return E_NO_ERROR;
+}
+
 //! Монтирует диски.
 static err_t rootfs_mount_disks(void)
 {
@@ -86,6 +110,19 @@ static diskfs_t* rootfs_get_diskfs(BYTE pdrv)
     return &rootfs.diskfs[pdrv];
 }
 
+err_t rootfs_mount(BYTE pdrv)
+{
+    diskfs_t* diskfs = rootfs_get_diskfs(pdrv);
+    if(diskfs == NULL) return E_INVALID_VALUE;
+
+    return rootfs_mount_disk(pdrv, diskfs);
+}
+
+err_t rootfs_umount(BYTE pdrv)
+{
+    return rootfs_umount_disk(pdrv);
+}
+
 DSTATUS rootfs_disk_initialize(BYTE pdrv)
 {
 	diskfs_t* diskfs = rootfs_get_diskfs(pdrv);
@@ -126,6 +163,8 @@ DRESULT rootfs_disk_read(BYTE pdrv, BYTE* buff, DWORD sector, UINT count)
         if(res == RES_OK) break;
         // Ошибка параметра - нет смысла повторять.
         if(res == RES_PARERR) break;
+
+        printf("disk error!\r\n");
 
         // Сброс диска.
         if(diskfs->disk_reset) diskfs->disk_reset(diskfs->disk);
@@ -172,6 +211,8 @@ DRESULT rootfs_disk_write(BYTE pdrv, const BYTE* buff, DWORD sector, UINT count)
         if(res == RES_OK) break;
         // Ошибка параметра - нет смысла повторять.
         if(res == RES_PARERR) break;
+
+        printf("disk error!\r\n");
 
         // Сброс диска.
         if(diskfs->disk_reset) diskfs->disk_reset(diskfs->disk);

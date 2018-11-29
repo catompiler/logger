@@ -10,6 +10,7 @@
 #include "dout.h"
 #include "osc.h"
 #include "trig.h"
+#include "rootfs.h"
 #include "storage.h"
 #include "oscs.h"
 #include "trends.h"
@@ -219,6 +220,9 @@ static void logger_state_noinit(void)
 	    if(trends_running()){
 	        if(trends_stop(NULL) != E_NO_ERROR) break;
 	    }
+
+        // Примонтировать ФС.
+        rootfs_mount(0);
 
 	    // Запретить и сбросить АЦП.
 	    ain_set_enabled(false);
@@ -442,6 +446,10 @@ static void logger_state_halt(void)
         break;
     case LOGGER_HALT_SYNC:
         if(future_done(&logger.halt_future)){
+
+            // Отмонтировать ФС.
+            rootfs_umount(0);
+
             // Синхронизация завершена.
             err = pvoid_to_int(err_t, future_result(&logger.halt_future));
 

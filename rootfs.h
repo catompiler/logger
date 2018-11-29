@@ -54,18 +54,33 @@ typedef struct _DiskFS {
 extern err_t rootfs_init(diskfs_t* disks, size_t count);
 
 /**
+ * Монтирует ФС диска.
+ * @param pdrv Номер диска.
+ * @return Код ошибки.
+ */
+extern err_t rootfs_mount(BYTE pdrv);
+
+/**
+ * Отмонтирует ФС диска.
+ * @param pdrv Номер диска.
+ * @return Код ошибки.
+ */
+extern err_t rootfs_umount(BYTE pdrv);
+
+
+/**
  * Инициализирует диск.
  * @param pdrv Номер диска.
  * @return Статус.
  */
-DSTATUS rootfs_disk_initialize(BYTE pdrv);
+extern DSTATUS rootfs_disk_initialize(BYTE pdrv);
 
 /**
  * Получает статус диска.
  * @param pdrv Номер диска.
  * @return Статус.
  */
-DSTATUS rootfs_disk_status(BYTE pdrv);
+extern DSTATUS rootfs_disk_status(BYTE pdrv);
 
 /**
  * Читает сектор диска.
@@ -75,7 +90,7 @@ DSTATUS rootfs_disk_status(BYTE pdrv);
  * @param count Число секторов.
  * @return Результат.
  */
-DRESULT rootfs_disk_read(BYTE pdrv, BYTE* buff, DWORD sector, UINT count);
+extern DRESULT rootfs_disk_read(BYTE pdrv, BYTE* buff, DWORD sector, UINT count);
 
 #if _USE_WRITE
 /**
@@ -86,7 +101,7 @@ DRESULT rootfs_disk_read(BYTE pdrv, BYTE* buff, DWORD sector, UINT count);
  * @param count Число секторов.
  * @return Результат.
  */
-DRESULT rootfs_disk_write(BYTE pdrv, const BYTE* buff, DWORD sector, UINT count);
+extern DRESULT rootfs_disk_write(BYTE pdrv, const BYTE* buff, DWORD sector, UINT count);
 #endif // _USE_WRITE
 
 #if _USE_IOCTL
@@ -97,7 +112,7 @@ DRESULT rootfs_disk_write(BYTE pdrv, const BYTE* buff, DWORD sector, UINT count)
  * @param buff Буфер.
  * @return Результат.
  */
-DRESULT rootfs_disk_ioctl(BYTE pdrv, BYTE cmd, void* buff);
+extern DRESULT rootfs_disk_ioctl(BYTE pdrv, BYTE cmd, void* buff);
 #endif // _USE_IOCTL
 
 
