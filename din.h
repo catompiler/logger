@@ -9,7 +9,7 @@
 #include "gpio/gpio.h"
 #include <stddef.h>
 #include <stdbool.h>
-#include "q15.h"
+#include "q15/q15.h"
 
 
 //! Число цифровых входов.

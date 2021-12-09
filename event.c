@@ -8,8 +8,8 @@
 #include "osc.h"
 #include "oscs.h"
 #include "trig.h"
-#include "q15.h"
-#include "q15_str.h"
+#include "q15/q15.h"
+#include "q15/q15_str.h"
 #include "comtrade.h"
 
 

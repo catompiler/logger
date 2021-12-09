@@ -11,10 +11,10 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <sys/time.h>
-#include "q15.h"
-#include "decim.h"
-#include "avg.h"
-#include "maj.h"
+#include "q15/q15.h"
+#include "dsp/decim.h"
+#include "dsp/avg.h"
+#include "dsp/maj.h"
 
 
 //! Неправильный индекс.

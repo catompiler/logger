@@ -88,6 +88,7 @@ typedef struct _Logger {
     TickType_t conf_last_read; //!< Последнее чтение.
     logger_init_state_t init_state; //!< Состояние чтения.
     // Событие.
+    bool has_event; //!< Защёлка цифрового выхода.
     event_t event; //!< Событие.
     TickType_t osc_wait_time; //!< Время ожидания осциллограммы.
     future_t event_future; //!< Будущее.
@@ -189,6 +190,7 @@ static void logger_update_douts(void)
     st_error |= logger.state == LOGGER_STATE_ERROR;
 
     st_event |= logger.state == LOGGER_STATE_EVENT;
+    st_event |= logger.has_event;
 
     dout_set_type_state(DOUT_RUN, st_run);
     dout_set_type_state(DOUT_ERROR, st_error);
@@ -199,6 +201,7 @@ static void logger_check_trigs(void)
 {
 	if(trig_check(LOGGER_ITER_DELAY_F)){
 		if(logger.state == LOGGER_STATE_RUN){
+		    logger.has_event = true;
 		    logger_go_event();
 		}
 	}
@@ -220,6 +223,9 @@ static void logger_state_noinit(void)
 	    if(trends_running()){
 	        if(trends_stop(NULL) != E_NO_ERROR) break;
 	    }
+
+	    //!< Сброс защёлки.
+	    logger.has_event = false;
 
         // Примонтировать ФС.
         rootfs_mount(0);

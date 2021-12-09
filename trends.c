@@ -12,7 +12,7 @@
 #include "comtrade.h"
 #include "future/future.h"
 #include "utils/utils.h"
-#include "edge_detect.h"
+#include "dsp/edge_detect.h"
 #include <sys/time.h>
 #include <time.h>
 #include "fattime.h"

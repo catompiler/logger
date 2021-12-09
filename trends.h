@@ -8,7 +8,7 @@
 #include "osc.h"
 #include "errors/errors.h"
 #include "future/future.h"
-#include "q15.h"
+#include "q15/q15.h"
 #include <stdbool.h>
 #include "fatfs/ff.h"
 

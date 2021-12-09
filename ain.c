@@ -5,10 +5,10 @@
 #include "queue.h"
 #include "tasks_conf.h"
 #include <string.h>
-#include "fir.h"
-#include "q15.h"
-#include "decim.h"
-#include "mwin.h"
+#include "dsp/fir.h"
+#include "q15/q15.h"
+#include "dsp/decim.h"
+#include "dsp/mwin.h"
 #include "hires_timer.h"
 #include "osc.h"
 #include "oscs.h"
@@ -417,13 +417,15 @@ static void ain_process_channel_adc_data(size_t n, uint16_t adc_data)
         // Вычтем среднюю точку.
         sample = (q15_t)((int32_t)adc_data - (int32_t)channel->adc_offset);
         // Преобразуем в формат Q15.
-        sample = QNtoM(sample, ADC_BITS_SIGNED, Q15_FRACT_BITS);
+        //sample = QNtoM(sample, ADC_BITS_SIGNED, Q15_FRACT_BITS);
     }else{
         // Возьмём полную амплитуду.
         sample = (q15_t)adc_data;
         // Преобразуем в формат Q15.
-        sample = QNtoM(sample, ADC_BITS, Q15_FRACT_BITS);
+        //sample = QNtoM(sample, ADC_BITS, Q15_FRACT_BITS);
     }
+    // Преобразуем в формат Q15.
+    sample = QNtoM(sample, ADC_BITS, Q15_FRACT_BITS);
     // Умножим на мгновенный кэффициент пропорциональности.
     sample = q15_mul(sample, channel->adc_gain);
 
