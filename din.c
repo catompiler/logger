@@ -38,7 +38,7 @@ ALWAYS_INLINE static din_channel_t* din_channel(size_t n)
 }
 
 //! Получает текущее состояние входа.
-ALWAYS_INLINE static din_state_t din_channel_state_inst(din_channel_t* channel)
+static din_state_t din_channel_state_inst(din_channel_t* channel)
 {
 	if(channel->gpio == NULL || channel->pin == 0) return DIN_OFF;
 
@@ -129,6 +129,15 @@ din_state_t din_state(size_t n)
 	din_channel_t* channel = din_channel(n);
 
 	return channel->state;
+}
+
+din_state_t din_state_inst(size_t n)
+{
+    if(n >= DIN_COUNT) return DIN_OFF;
+
+    din_channel_t* channel = din_channel(n);
+
+    return din_channel_state_inst(channel);
 }
 
 din_state_t din_type_state(din_type_t type)

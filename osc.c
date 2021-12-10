@@ -356,7 +356,11 @@ static void osc_channel_append_din(osc_channel_t* channel)
 {
 	osc_value_t value = 0;
 
-	value = din_state(channel->src_channel);
+	if(channel->src_type == OSC_INST){
+	    value = din_state_inst(channel->src_channel);
+    }else{
+        value = din_state(channel->src_channel);
+    }
 
 	osc_channel_append_value(channel, value);
 }

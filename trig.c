@@ -56,10 +56,9 @@ static trig_value_t trig_channel_value(trig_channel_t* channel)
 
 	case TRIG_DIN:
 		if(channel->src_type == TRIG_INST){
-			return din_state(channel->src_channel);
+			return din_state_inst(channel->src_channel);
 		}
-		return din_changed(channel->src_channel) &&
-		       (din_state(channel->src_channel) == DIN_ON);
+		return din_state(channel->src_channel);
 
 	default:
 		break;
@@ -81,11 +80,11 @@ static bool trig_check_channel(trig_channel_t* channel, q15_t dt)
 
 	trig_value_t value = trig_channel_value(channel);
 
-	bool fail = trig_channel_compare(channel, value);
+	bool cur_active = trig_channel_compare(channel, value);
 
 	bool activated = false;
 
-	if(fail){
+	if(cur_active){
 		channel->cur_time = q15_add_sat(channel->cur_time, dt);
 
 		if(channel->cur_time >= channel->time){
@@ -99,7 +98,7 @@ static bool trig_check_channel(trig_channel_t* channel, q15_t dt)
 		channel->active = false;
 	}
 
-	channel->fail = fail;
+	channel->fail = cur_active;
 	channel->activated = activated;
 
 	return channel->activated;

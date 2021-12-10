@@ -77,6 +77,13 @@ extern void din_process(q15_t dt);
 extern din_state_t din_state(size_t n);
 
 /**
+ * Получает мгновенное состояние канала входа.
+ * @param n Номер канала.
+ * @return Состояние.
+ */
+extern din_state_t din_state_inst(size_t n);
+
+/**
  * Получает состояние входа с заданным типом.
  * @param type Тим входа.
  * @return Состояние.
