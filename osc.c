@@ -990,10 +990,10 @@ static size_t osc_channel_count_to_size(osc_channel_t* channel, size_t count)
  * Устанавливает значение размера в канале.
  * Игнорирует запрещённые каналы.
  * @param channels Каналы.
- * @param count Число каналов.
+ * @param count Число семплов.
  * @return Размер.
  */
-static size_t osc_channels_calc_req_size(osc_t* osc)
+static size_t osc_channels_calc_req_size(osc_t* osc, size_t count)
 {
     osc_channel_t* channel = NULL;
 
@@ -1001,12 +1001,12 @@ static size_t osc_channels_calc_req_size(osc_t* osc)
 
     size_t i;
     for(i = 0; i < osc->channels_count; i ++){
-    	channel = osc_channel(osc, i);
+        channel = osc_channel(osc, i);
 
     	// Пропуск запрещённых каналов.
-    	if(!channel->enabled) continue;
+        if(!channel->enabled) continue;
 
-    	req_size += osc_channel_count_to_size(channel, osc->buf_samples);
+        req_size += osc_channel_count_to_size(channel, count);
     }
 
     return req_size;
@@ -1113,8 +1113,12 @@ err_t osc_init_channels(osc_t* osc, size_t rate)
 
     err_t err = E_NO_ERROR;
 
-    size_t total_req_size = osc_channels_calc_req_size(osc);
-    size_t total_size = osc->buf_samples;
+    // Полный размер буфера.
+    const size_t total_size = osc->buf_samples;
+    // Число семплов по-умолчанию.
+    size_t samples_count = osc->buf_samples;
+    // Вычислим полный требуемый размер буфера.
+    size_t total_req_size = osc_channels_calc_req_size(osc, samples_count);
 
     // Вычислим относительный размер для всех каналов.
     //iq15_t size_rate = IQ15F(total_size, total_req_size);
@@ -1122,7 +1126,19 @@ err_t osc_init_channels(osc_t* osc, size_t rate)
     iq15_t size_rate = (iq15_t)((((int64_t)total_size) << Q15_FRACT_BITS) / total_req_size);
 
     // Вычислим число семплов.
-    size_t samples_count = osc_calc_channel_samples(osc, size_rate);
+    samples_count = osc_calc_channel_samples(osc, size_rate);
+
+    // Если вдруг из-за погрешности число семплов всё ещё слишком велико,
+    // будем уменьшать число семплов, пока не влезем в буфер.
+    do {
+        // Вычислим нужный размер.
+        total_req_size = osc_channels_calc_req_size(osc, samples_count);
+        // Если влезли в буфер - идём дальше.
+        if(total_req_size <= total_size) break;
+        // Уменьшим число семплов.
+        samples_count --;
+    } while(samples_count);
+
     // Если число выходит за пределы - ошибка.
     if(samples_count == 0 || samples_count > osc->buf_samples) return E_OUT_OF_RANGE;
 
