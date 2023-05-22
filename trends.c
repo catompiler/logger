@@ -19,6 +19,9 @@
 #include "storage.h"
 
 
+//! Число попыток записи тренда.
+#define TRENDS_WRITE_RETRIES 3
+
 //! Размер очереди.
 #define TRENDS_QUEUE_SIZE (TRENDS_BUFFERS * 2)
 
@@ -639,10 +642,18 @@ static err_t trends_task_write_osc_buf_part(osc_t* osc, size_t buf, size_t start
     osc_data->start = start;
     osc_data->count = count;
 
-    err = trends_task_ctrd_write_cfg(comtrade);
+    int retry = 0;
+
+    for(retry = 0; retry < TRENDS_WRITE_RETRIES; retry ++){
+        err = trends_task_ctrd_write_cfg(comtrade);
+        if(err == E_NO_ERROR) break;
+    }
     if(err != E_NO_ERROR) return err;
 
-    err = trends_task_ctrd_write_dat(comtrade);
+    for(retry = 0; retry < TRENDS_WRITE_RETRIES; retry ++){
+        err = trends_task_ctrd_write_dat(comtrade);
+        if(err == E_NO_ERROR) break;
+    }
     if(err != E_NO_ERROR) return err;
 
     trends.samples += count;

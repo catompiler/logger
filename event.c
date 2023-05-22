@@ -17,6 +17,9 @@
  * Общие данные.
  */
 
+//! Число попыток записи события.
+#define EVENT_WRITE_RETRIES 3
+
 //! Максимальное число микросекунд для записи.
 #define EVENT_USEC_MAX 999999
 
@@ -576,10 +579,18 @@ err_t event_ctrd_write(FIL* filevar, event_t* event)
 
     err = E_NO_ERROR;
 
-    err = event_ctrd_write_cfg(filevar, event, &comtrade);
+    int retry = 0;
+
+    for(retry = 0; retry < EVENT_WRITE_RETRIES; retry ++){
+        err = event_ctrd_write_cfg(filevar, event, &comtrade);
+        if(err == E_NO_ERROR) break;
+    }
     if(err != E_NO_ERROR) return err;
 
-    err = event_ctrd_write_dat(filevar, event, &comtrade);
+    for(retry = 0; retry < EVENT_WRITE_RETRIES; retry ++){
+        err = event_ctrd_write_dat(filevar, event, &comtrade);
+        if(err == E_NO_ERROR) break;
+    }
     if(err != E_NO_ERROR) return err;
 
     return E_NO_ERROR;
@@ -589,8 +600,12 @@ err_t event_write(FIL* filevar, event_t* event)
 {
     err_t err = E_NO_ERROR;
 
-    err = event_csv_write(filevar, event);
-    if(err != E_NO_ERROR) return err;
+    /*int retry = 0;
+    for(retry = 0; retry < EVENT_WRITE_RETRIES; retry ++){
+        err = event_csv_write(filevar, event);
+        if(err == E_NO_ERROR) break;
+    }
+    if(err != E_NO_ERROR) return err;*/
 
     err = event_ctrd_write(filevar, event);
 
